@@ -1,0 +1,19 @@
+#
+# Production dependencies for an ASGI Django + Channels WebSocket server.
+# Pinning is intentionally light to allow security updates while keeping
+# major-version compatibility constraints.
+#
+
+Django>=4.2,<6.0
+channels>=4.0,<5.0
+channels-redis>=4.1,<5.0
+
+# ASGI server (production; do NOT use Django runserver)
+daphne>=4.0,<5.0
+
+# Redis client used for the ownership store (asyncio support)
+redis>=5.0,<6.0
+
+# Optional helpers for 12-factor configuration
+python-dotenv>=1.0,<2.0
+dj-database-url>=2.0,<3.0

@@ -1,0 +1,37 @@
+[Unit]
+Description=ws-server (Daphne ASGI) - Django Channels WebSocket service
+After=network.target
+
+[Service]
+Type=simple
+
+# Run as a non-root user in production.
+User=www-data
+Group=www-data
+
+# Project root containing manage.py
+WorkingDirectory=/opt/ws_server
+
+# Environment variables:
+# - Prefer EnvironmentFile so secrets are not hardcoded in unit files.
+# - Example file: /etc/ws-server/ws-server.env
+EnvironmentFile=/etc/ws-server/ws-server.env
+
+# IMPORTANT: do NOT use Django runserver in production.
+# Daphne serves the ASGI application (HTTP + WebSocket).
+#
+# Bind to 0.0.0.0 so the ALB target group can reach it on the instance port.
+ExecStart=/opt/ws_server/venv/bin/daphne -b 0.0.0.0 -p 8000 ws_server.asgi:application
+
+# Restart policy for resilience.
+Restart=always
+RestartSec=2
+
+# Hardening (safe defaults; adjust if your app needs more privileges)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

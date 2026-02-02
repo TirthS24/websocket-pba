@@ -1,0 +1,16 @@
+# Python / virtualenv
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local state
+db.sqlite3
+.DS_Store
+
+# Secrets / environment files (keep example template)
+.env
+ws_server/.env
+.env.*
+!example.env
+
