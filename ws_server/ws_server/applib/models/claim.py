@@ -1,0 +1,104 @@
+from .code import CodeGuidance
+from pydantic import BaseModel
+from typing import List, Optional
+
+# === ClaimStatus ===
+# Represents the claim status section (from the 835 file).
+class ClaimStatus(BaseModel):
+    code: str
+    description: str
+    payer_classification: str
+    was_forwarded: bool
+
+
+# === RenderingProvider ===
+# Represents the rendering provider section (from the 835 file).
+class RenderingProvider(BaseModel):
+    first_name: str
+    last_name: str
+    identification_code_qualifier: str
+    identification_code: str
+
+
+# === Adjustment ===
+# Represents a single adjustment entry on a service line.
+class Adjustment(BaseModel):
+    id: int
+    identifier: str
+    group_code: str
+    group_code_description: str
+    reason_code: str
+    reason_code_description: str
+    amount: float
+    guidance: Optional[CodeGuidance] = None
+
+
+# === Service ===
+# Represents a line-item service billed in a claim, with adjustments.
+class Service(BaseModel):
+    id: int
+    service_date: str
+    service_period_start: str
+    service_period_end: str
+    service_allowed_amount: float
+    service_charge_amount: float
+    service_paid_amount: float
+    service_balance: float
+    qualifier: str
+    modifier: Optional[str] = None
+    service_code: str
+    service_allowed_units: int
+    service_billed_units: int
+    adjustments: List[Adjustment]
+
+    @property
+    def insurance_adjustments(self) -> List[Adjustment]:
+        return list(filter(lambda x: x.group_code.upper() != 'PR', self.adjustments))
+
+    @property
+    def patient_responsibility_adjustments(self) -> List[Adjustment]:
+        return list(filter(lambda x: x.group_code == 'PR', self.adjustments))
+
+
+# === Claim835Data ===
+# Represents claim-level information from the 835 file.
+class Claim835Data(BaseModel):
+    id: int
+    claim_id: str
+    icn: str
+    patient_icq: str
+    patient_ic: str
+    claim_type: str
+    total_charge_amount: float
+    total_allowed_amount: float
+    total_paid_amount: float
+    total_balance: float
+    payment_effective_date: str
+    claim_statement_period_start: str
+    claim_statement_period_end: str
+    rendering_provider: RenderingProvider
+    status: ClaimStatus
+    services: List[Service]
+
+
+# === ClaimDBData ===
+# Represents claim-level data enriched or tracked internally in the database.
+class Claim(BaseModel):
+    external_id: str
+    date_of_service: str
+    total_due: float
+    total_fee: float
+    total_paid: float
+    total_manual_paid: float
+    total_network_discount: float
+    total_insurance: float
+    total_resolved_amount: float
+    resolved_at: str
+    provider_name: str
+    is_resolved_as_not_present: Optional[str | bool] = None
+    edi_mappings: List[Claim835Data]
+    adjustments: Optional[List[Adjustment]] = None
+
+
+
+

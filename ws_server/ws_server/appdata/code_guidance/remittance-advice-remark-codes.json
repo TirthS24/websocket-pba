@@ -1,0 +1,120 @@
+{
+  "M": {
+    "description": "",
+    "summary": "",
+    "provider_action": "",
+    "patient_action": "",
+    "reason_codes": {
+      "2": {
+        "description": "Service not billable separately during hospitalization",
+        "summary": "Service should be included in hospital package payment",
+        "provider_action": "Verify if service is included in hospital package payment.",
+        "patient_action": "CONTACT PROVIDER IF BILLED SEPARATELY - This service should be included in your hospitalization charges. If billed separately, contact your provider's billing department. Hospital services often have specific bundling rules that prohibit separate billing for certain services during an inpatient stay."
+      },
+      "3": {
+        "description": "Equipment similar to what patient already has",
+        "summary": "Duplicate equipment coverage issue.",
+        "provider_action": "Verify patient's current equipment and document medical necessity for additional items.",
+        "patient_action": "CONTACT PROVIDER AND INSURANCE - Ask your provider to document why you need additional equipment beyond what you already have. Contact your insurance to understand your coverage for duplicate equipment. This typically applies to durable medical equipment claims and requires medical justification."
+      },
+      "17": {
+        "description": "Payment approved as exception; future services not covered",
+        "summary": "One-time coverage exception granted; future services will not be covered.",
+        "provider_action": "Document this exception and be aware that future similar services will not be paid.",
+        "patient_action": "CONTACT PROVIDER BEFORE FUTURE SERVICES - This service was covered as a one-time exception. Future identical services will likely not be covered. Discuss alternatives with your provider before receiving this service again. CONTACT INSURANCE to understand exactly why this is typically not covered and what alternatives might be covered."
+      },
+      "19": {
+        "description": "Missing oxygen certification documentation",
+        "summary": "Required oxygen certification documentation not submitted.",
+        "provider_action": "Submit proper oxygen certification documentation.",
+        "patient_action": "CONTACT PROVIDER - Ask your provider to submit the required oxygen certification documentation to your insurance company as soon as possible. This is specifically for durable medical equipment claims related to oxygen and requires medical documentation that only your provider can supply."
+      },
+      "20": {
+        "description": "Missing or invalid HCPCS codes",
+        "summary": "Procedure coding issues on claim; codes are either missing or invalid.",
+        "provider_action": "Review claim and resubmit with correct HCPCS coding.",
+        "patient_action": "CONTACT PROVIDER - Inform your provider's billing department that the claim has incorrect procedure codes. Ask them when they will resubmit with corrected codes. This is a technical coding issue that can only be corrected by your provider's billing department."
+      },
+      "27": {
+        "description": "Provider liable for unnecessary/custodial services",
+        "summary": "Provider cannot bill for these services.",
+        "provider_action": "Review medical necessity documentation and consider appeal options.",
+        "patient_action": "NO ACTION REQUIRED - The provider cannot bill you for these services. If you receive a bill, contact your provider and reference this code. The insurance has determined the services were not medically necessary or were custodial in nature, and the provider is financially responsible, not you."
+      },
+      "29": {
+        "description": "Missing operative note/report",
+        "summary": "Surgical documentation not submitted.",
+        "provider_action": "Submit missing operative notes.",
+        "patient_action": "CONTACT PROVIDER - Ask your provider to submit the required operative reports to your insurance company. Follow up to ensure submission occurs. These are medical records that only your provider can provide to support the surgical services billed."
+      },
+      "30": {
+        "description": "Missing pathology report",
+        "summary": "Lab/pathology documentation not submitted.",
+        "provider_action": "Submit missing pathology report.",
+        "patient_action": "CONTACT PROVIDER - Ask your provider to submit the required pathology reports to your insurance company. Follow up to ensure submission occurs. These are medical records that only your provider or laboratory can provide to support the pathology services billed."
+      },
+      "31": {
+        "description": "Missing radiology report",
+        "summary": "Imaging documentation not submitted.",
+        "provider_action": "Submit missing radiology report.",
+        "patient_action": "CONTACT PROVIDER - Ask your provider to submit the required radiology reports to your insurance company. Follow up to ensure submission occurs. These are medical records that only your provider or radiology facility can provide to support the imaging services billed."
+      },
+      "80": {
+        "description": "Not covered when performed same day as another service",
+        "summary": "Service should be bundled with same-day procedures.",
+        "provider_action": "Review bundling rules and proper coding guidelines.",
+        "patient_action": "CONTACT PROVIDER IF BILLED - This service should not be billed separately when performed with other services on the same day due to coding bundling rules. If billed separately, contact your provider's billing department. This is a coding issue that the provider needs to correct according to proper billing guidelines."
+      }
+    }
+  },
+  "N": {
+    "description": "",
+    "summary": "",
+    "provider_action": "",
+    "patient_action": "",
+    "reason_codes": {
+      "522": {
+        "description": "Duplicate claim indicator",
+        "summary": "Used with CARC CO-18 for duplicate submissions.",
+        "provider_action": "Review claim submission history to avoid duplicate submissions.",
+        "patient_action": "CONTACT PROVIDER IF BILLED TWICE - If you receive multiple bills for the same service, contact your provider's billing department immediately to resolve the duplicate billing issue. This code specifically indicates that a claim was submitted more than once for the same service."
+      },
+      "808": {
+        "description": "Situation-specific adjustment",
+        "summary": "Adjustment for special circumstances.",
+        "provider_action": "Review specific situation code details for appropriate action.",
+        "patient_action": "CONTACT INSURANCE FOR CLARIFICATION - This is a situation-specific code. Contact your insurance company to understand exactly what this code means for your specific claim and what actions you need to take. The necessary follow-up will depend on the specific circumstances indicated by this code."
+      },
+      "863": {
+        "description": "Payment calculation under No Surprises Act",
+        "summary": "Explanation of out-of-network payment calculation under the No Surprises Act",
+        "provider_action": "Verify payment calculations according to the No Surprises Act guidelines.",
+        "patient_action": "VERIFY WITH INSURANCE - Contact your insurance company to confirm this out-of-network payment follows the No Surprises Act and that you are not responsible for additional balance billing. These codes specifically relate to new federal protections against surprise medical bills."
+      },
+      "871": {
+        "description": "Initial payment under state law/No Surprises Act",
+        "summary": "Payment made under special protection laws.",
+        "provider_action": "Review payment under applicable state law and No Surprises Act regulations.",
+        "patient_action": "VERIFY WITH INSURANCE - Contact your insurance company to confirm this payment follows the No Surprises Act and that you are not responsible for additional balance billing beyond your normal in-network cost-sharing. This code indicates special billing protections may apply to your claim."
+      },
+      "876": {
+        "description": "Payment calculation under No Surprises Act",
+        "summary": "Explanation of out-of-network payment calculation under the No Surprises Act",
+        "provider_action": "Verify payment calculations according to the No Surprises Act guidelines.",
+        "patient_action": "VERIFY WITH INSURANCE - Contact your insurance company to confirm this out-of-network payment follows the No Surprises Act and that you are not responsible for additional balance billing. These codes specifically relate to new federal protections against surprise medical bills."
+      },
+      "878": {
+        "description": "Notice and consent status for balance billing",
+        "summary": "Indicates whether consent for balance billing was obtained.",
+        "provider_action": "Ensure proper notice and consent documentation is in place.",
+        "patient_action": "REVIEW DOCUMENTS YOU SIGNED - Check if you signed consent forms regarding balance billing for out-of-network services. Contact your insurance company to verify if balance billing is permitted for this service under federal protections. The No Surprises Act requires specific consent for balance billing in many situations."
+      },
+      "879": {
+        "description": "Notice and consent status for balance billing",
+        "summary": "Indicates whether consent for balance billing was obtained.",
+        "provider_action": "Ensure proper notice and consent documentation is in place.",
+        "patient_action": "REVIEW DOCUMENTS YOU SIGNED - Check if you signed consent forms regarding balance billing for out-of-network services. Contact your insurance company to verify if balance billing is permitted for this service under federal protections. The No Surprises Act requires specific consent for balance billing in many situations."
+      }
+    }
+  }
+}

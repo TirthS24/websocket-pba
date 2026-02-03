@@ -18,6 +18,7 @@ from django.conf import settings
 from django.core.asgi import get_asgi_application
 
 from ws_server.routing import websocket_urlpatterns
+from ws_server.realtime.middleware import WebSocketAuthMiddleware
 
 # Standard Django ASGI application for HTTP.
 django_asgi_app = get_asgi_application()
@@ -36,7 +37,9 @@ django_asgi_app = get_asgi_application()
 # - Some WS clients (CLI tools, Postman-like clients) do NOT send an Origin header.
 # - `AllowedHostsOriginValidator` may reject those with 403.
 # - In production, keep strict origin validation.
-websocket_app = AuthMiddlewareStack(URLRouter(websocket_urlpatterns))
+websocket_app = AuthMiddlewareStack(
+    WebSocketAuthMiddleware(URLRouter(websocket_urlpatterns))
+)
 if not settings.DEBUG:
     websocket_app = AllowedHostsOriginValidator(websocket_app)
 

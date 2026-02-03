@@ -1,0 +1,162 @@
+{# ADJUSTMENT #}
+{% macro render_adjustment(adjustment) %}
+{% if adjustment.group_code %}
+Group Code: {{ adjustment.group_code }}
+{% endif %}
+{% if adjustment.group_code_description %}
+Group Code Description: {{ adjustment.group_code_description }}
+{% endif %}
+{% if adjustment.reason_code %}
+Reason Code: {{ adjustment.reason_code }}
+{% endif %}
+{% if adjustment.reason_code_description %}
+Reason Code Description: {{ adjustment.reason_code_description }}
+{% endif %}
+{% if adjustment.amount %}
+Adjustment Amount: ${{ "%0.2f" | format(adjustment.amount | float) }}
+{% endif %}
+{% if adjustment.guidance %}
+Patient Action: {{ adjustment.guidance.patient_action }}
+{% endif %}
+{% endmacro %}
+
+{# SERVICE #}
+{% macro render_service(service, indent=0, render_adjustments=true) %}
+{% if service.service_date %}
+Service Date: {{ service.service_date }}
+{% else %}
+{% if service.service_period_start %}
+Service Period Start: {{ service.service_period_start }}
+{% endif %}
+{% if service.service_period_end %}
+Service Period End: {{ service.service_period_end }}
+{% endif %}
+{% endif %}
+{% if service.service_charge_amount %}
+Service Charge Amount: ${{ "%0.2f" | format(service.service_charge_amount | float) }}
+{% endif %}
+{% if service.service_allowed_amount %}
+Service Allowed Amount: ${{ "%0.2f" | format(service.service_allowed_amount | float) }}
+{% endif %}
+{% if service.service_paid_amount %}
+Service Paid Amount: ${{ "%0.2f" | format(service.service_paid_amount | float) }}
+{% endif %}
+{% if service.service_balance %}
+Service Balance: ${{ "%0.2f" | format(service.service_balance | float) }}
+{% endif %}
+{% if render_adjustments is sameas true %}
+{% if service.insurance_adjustments +%}
+{{ '-'*25 }}
+| Insurance Adjustments |
+{{ '-'*25 }}
+{% for adjustment in service.insurance_adjustments %}
+--- ADJUSTMENT ---------------------
+{% filter indent(width=indent+2) +%}
+{{ render_adjustment(adjustment) }}
+{% endfilter %}
+{% endfor %}
+{% endif %}
+{% if service.insurance_adjustments %}
+{{ '-'*28 }}
+| Patient Responsibilities |
+{{ '-'*28 }}
+{% for adjustment in service.patient_responsibility_adjustments %}
+--- ADJUSTMENT ---------------------
+{% filter indent(width=indent+2) +%}
+{{ render_adjustment(adjustment) }}
+{% endfilter %}
+{% endfor %}
+{% endif %}
+{% endif %}
+{% endmacro %}
+
+
+{# CLAIM 835 #}
+{% macro render_835(claim_835, render_services, render_adjustments, indent) %}
+{% if claim_835.claim_id %}
+Claim ID: {{ claim_835.claim_id }}
+{% endif %}
+{% if claim_835.rendering_provider %}
+Rendering Provider: {{ claim_835.rendering_provider.first_name | lower | capitalize }} {{ claim_835.rendering_provider.last_name | lower | capitalize }}
+{% endif %}
+{% if claim_835.claim_statement_period_start %}
+Claim Statement Period Start: {{ claim_835.claim_statement_period_start }}
+{% endif %}
+{% if claim_835.claim_statement_period_end %}
+Claim Statement Period End: {{ claim_835.claim_statement_period_end }}
+{% endif %}
+{% if claim_835.total_charge_amount %}
+Total Claim Charge Amount: ${{ "%0.2f" | format(claim_835.total_charge_amount | float) }}
+{% endif %}
+{% if claim_835.total_allowed_amount %}
+Total Claim Allowed Amount: ${{ "%0.2f" | format(claim_835.total_allowed_amount | float) }}
+{% endif %}
+{% if claim_835.total_paid_amount %}
+Total Claim Paid Amount: ${{ "%0.2f" | format(claim_835.total_paid_amount | float) }}
+{% endif %}
+{% if claim_835.total_balance %}
+Total Claim Balance: ${{ "%0.2f" | format(claim_835.total_balance | float) }}
+{% endif %}
+{% if claim_835.status %}
+{% if claim_835.status.description %}
+Claim Status: {{ claim_835.status.description | capitalize }}
+{% endif %}
+{% endif %}
+{% if render_services is sameas true %}
+{% if claim_835.services %}
+
+Claim Services:
+{% filter indent(width=indent+2) +%}
+{% for service in claim_835.services %}
+======== SERVICE ================================================
+{{ render_service(service, 2, render_adjustments) }}
+{% endfor %}
+{% endfilter %}
+{% endif %}
+{% endif %}
+{% endmacro %}
+
+
+{# CLAIM #}
+{% macro render_claim(claim, render_services, render_adjustments, indent=0) %}
+{% if claim.date_of_service %}
+{% if not claim.date_of_service.lower() == 'none' %}
+Date of Service: {{ claim.date_of_service }}
+{% endif %}
+{% endif %}
+{% if claim.total_due %}
+Total Due: ${{ "%0.2f" | format(claim.total_due | float) }}
+{% endif %}
+{% if claim.total_allowed_amount %}
+Total Allowed Amount: ${{ "%0.2f" | format(claim.total_allowed_amount | float) }}
+{% endif %}
+{% if claim.total_fee %}
+Total Fee: ${{ "%0.2f" | format(claim.total_fee | float) }}
+{% endif %}
+{% if claim.total_paid %}
+Total Paid: ${{ "%0.2f" | format(claim.total_paid | float) }}
+{% endif %}
+{% if claim.total_manual_paid %}
+Total Manual Paid: ${{ "%0.2f" | format(claim.total_manual_paid | float) }}
+{% endif %}
+{% if claim.total_network_discount %}
+Total Network Discount: ${{ "%0.2f" | format(claim.total_network_discount | float) }}
+{% endif %}
+{% if claim.total_insurance %}
+Total Insurance: ${{ "%0.2f" | format(claim.total_insurance | float) }}
+{% endif %}
+{% if claim.edi_mappings %}
+
+{{ '='*27 }}
+|| SUPPORTING CLAIM DATA ||
+{{ '='*27 }}
+{% filter indent(width=indent+2) +%}
+{% for claim_835 in claim.edi_mappings %}
+{{ render_835(claim_835=claim_835, render_services=render_services, render_adjustments=render_adjustments, indent=indent+2) }}
+{% if not loop.last %}
+{{ '-'*80 }}
+{% endif %}
+{% endfor %}
+{% endfilter %}
+{% endif %}
+{% endmacro %}

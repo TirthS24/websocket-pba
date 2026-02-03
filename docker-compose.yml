@@ -9,15 +9,17 @@ services:
     build: .
     ports:
       - "8000:8000"
+    env_file:
+      # Load environment variables from .env file in project root
+      - .env
     environment:
       # Point the app at the compose Redis service (NOT localhost inside container)
       REDIS_URL: redis://redis:6379/0
-      # Local/dev defaults (override as needed)
-      DJANGO_DEBUG: "1"
-      DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1,192.168.5.165"
-      INSTANCE_ID: "docker-local"
-      # You can also put this in an env_file; keeping it explicit avoids confusion
-      DJANGO_SECRET_KEY: "local-dev-change-me"
+      # Local/dev defaults (override as needed if not in .env)
+      DJANGO_DEBUG: ${DJANGO_DEBUG:-1}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1}
+      INSTANCE_ID: ${INSTANCE_ID:-docker-local}
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-local-dev-change-me}
     depends_on:
       - redis
 

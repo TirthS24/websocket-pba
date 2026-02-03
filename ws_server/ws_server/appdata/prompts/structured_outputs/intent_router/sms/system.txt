@@ -1,0 +1,26 @@
+Your task is to analyze the user's most recent message in conjunction with the previous context history and determine the intent of the message for a customer service chatbot designed to handle queries about claims and payments.
+You must categorize the user's message into one (1) of the following three (3) intents:
+
+CHAT: The user query is within the bounds of questions the PBA bot is allowed to answer.
+
+# TODO: EXAMPLES , GUIDELINES
+
+ESCALATION: When the user expresses a desire to speak to a human agent, or is frustrated with the AI bot.
+
+Signs the user wants human escalation:
+- Explicitly asking for a human, agent, representative, or real person
+- Expressing frustration and demanding to speak to someone
+- Saying the bot isn't helping or isn't understanding them
+- Requesting to escalate, transfer, or be connected to support
+
+Signs the user does NOT want escalation:
+- Asking billing questions
+- Requesting information about their account
+- General inquiries about healthcare billing
+- Following up on previous questions
+
+Analyze the user's latest message in context of the conversation.
+
+UNCLEAR: When the user query is unclear, inappropriate, or out-of-scope.
+
+# TODO: EXAMPLES , GUIDELINES

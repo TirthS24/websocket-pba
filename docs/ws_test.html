@@ -1,0 +1,684 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>WebSocket Chat Test - websocket-pba</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 20px;
+      }
+      
+      .container {
+        background: white;
+        border-radius: 16px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        width: 100%;
+        max-width: 1200px;
+        height: 90vh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      
+      .header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 20px 24px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      
+      .header h1 {
+        font-size: 24px;
+        font-weight: 600;
+      }
+      
+      .status {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 14px;
+      }
+      
+      .status-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: #ff4444;
+        animation: pulse 2s infinite;
+      }
+      
+      .status-dot.connected {
+        background: #44ff44;
+      }
+      
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+      }
+      
+      .main-content {
+        display: flex;
+        flex: 1;
+        overflow: hidden;
+      }
+      
+      .chat-area {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        border-right: 1px solid #e5e7eb;
+      }
+      
+      .settings-panel {
+        width: 350px;
+        background: #f9fafb;
+        padding: 20px;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }
+      
+      .settings-section {
+        background: white;
+        padding: 16px;
+        border-radius: 8px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      }
+      
+      .settings-section h3 {
+        font-size: 14px;
+        font-weight: 600;
+        color: #374151;
+        margin-bottom: 12px;
+      }
+      
+      .settings-section label {
+        display: block;
+        font-size: 12px;
+        font-weight: 500;
+        color: #6b7280;
+        margin-bottom: 6px;
+      }
+      
+      .settings-section input,
+      .settings-section select,
+      .settings-section textarea {
+        width: 100%;
+        padding: 8px 12px;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        font-size: 14px;
+        transition: border-color 0.2s;
+      }
+      
+      .settings-section input:focus,
+      .settings-section select:focus,
+      .settings-section textarea:focus {
+        outline: none;
+        border-color: #667eea;
+      }
+      
+      .settings-section textarea {
+        min-height: 100px;
+        font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+        font-size: 12px;
+        resize: vertical;
+      }
+      
+      .messages {
+        flex: 1;
+        overflow-y: auto;
+        padding: 20px;
+        background: #f9fafb;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      
+      .message {
+        max-width: 70%;
+        padding: 12px 16px;
+        border-radius: 12px;
+        word-wrap: break-word;
+        animation: slideIn 0.3s ease-out;
+      }
+      
+      @keyframes slideIn {
+        from {
+          opacity: 0;
+          transform: translateY(10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      
+      .message.user {
+        align-self: flex-end;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-bottom-right-radius: 4px;
+      }
+      
+      .message.assistant {
+        align-self: flex-start;
+        background: white;
+        color: #374151;
+        border: 1px solid #e5e7eb;
+        border-bottom-left-radius: 4px;
+      }
+      
+      .message.static {
+        align-self: flex-start;
+        background: #fef3c7;
+        color: #92400e;
+        border: 1px solid #fde68a;
+        border-bottom-left-radius: 4px;
+      }
+      
+      .message.system {
+        align-self: center;
+        background: #e0e7ff;
+        color: #3730a3;
+        font-size: 12px;
+        padding: 8px 12px;
+        max-width: 90%;
+        text-align: center;
+      }
+      
+      .message-header {
+        font-size: 11px;
+        opacity: 0.7;
+        margin-bottom: 4px;
+        font-weight: 500;
+      }
+      
+      .input-area {
+        padding: 20px;
+        background: white;
+        border-top: 1px solid #e5e7eb;
+        display: flex;
+        gap: 12px;
+        align-items: flex-end;
+      }
+      
+      .input-wrapper {
+        flex: 1;
+        position: relative;
+      }
+      
+      .input-wrapper textarea {
+        width: 100%;
+        padding: 12px 16px;
+        border: 2px solid #e5e7eb;
+        border-radius: 12px;
+        font-size: 14px;
+        font-family: inherit;
+        resize: none;
+        min-height: 50px;
+        max-height: 150px;
+        transition: border-color 0.2s;
+      }
+      
+      .input-wrapper textarea:focus {
+        outline: none;
+        border-color: #667eea;
+      }
+      
+      .send-button {
+        padding: 12px 24px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        border-radius: 12px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: transform 0.2s, box-shadow 0.2s;
+        min-width: 100px;
+      }
+      
+      .send-button:hover:not(:disabled) {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+      }
+      
+      .send-button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      
+      .thread-id-display {
+        font-size: 11px;
+        color: #6b7280;
+        margin-top: 8px;
+        word-break: break-all;
+      }
+      
+      .button-secondary {
+        padding: 8px 16px;
+        background: #f3f4f6;
+        color: #374151;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        font-size: 12px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+      
+      .button-secondary:hover {
+        background: #e5e7eb;
+      }
+      
+      .collapsible {
+        cursor: pointer;
+        user-select: none;
+      }
+      
+      .collapsible::after {
+        content: ' ▼';
+        font-size: 10px;
+        opacity: 0.6;
+      }
+      
+      .collapsible.collapsed::after {
+        content: ' ▶';
+      }
+      
+      .collapsible-content {
+        max-height: 500px;
+        overflow: hidden;
+        transition: max-height 0.3s ease-out;
+      }
+      
+      .collapsible-content.collapsed {
+        max-height: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <h1>WebSocket Chat Test</h1>
+        <div class="status">
+          <div class="status-dot" id="statusDot"></div>
+          <span id="statusText">Disconnected</span>
+        </div>
+      </div>
+      
+      <div class="main-content">
+        <div class="chat-area">
+          <div class="messages" id="messages"></div>
+          <div class="input-area">
+            <div class="input-wrapper">
+              <textarea 
+                id="messageInput" 
+                placeholder="Type your message here..."
+                rows="1"
+              ></textarea>
+              <div class="thread-id-display" id="threadIdDisplay"></div>
+            </div>
+            <button class="send-button" id="sendButton" disabled>Send</button>
+          </div>
+        </div>
+        
+        <div class="settings-panel">
+          <div class="settings-section">
+            <h3>Connection Settings</h3>
+            <label for="httpBase">HTTP Base URL</label>
+            <input id="httpBase" value="http://localhost:8000" placeholder="http://localhost:8000" />
+            
+            <label for="wsBaseUrl" style="margin-top: 12px;">WebSocket Base URL</label>
+            <input id="wsBaseUrl" value="ws://localhost:8000" placeholder="ws://localhost:8000" />
+          </div>
+          
+          <div class="settings-section">
+            <h3>Chat Settings</h3>
+            <label for="channel">Channel</label>
+            <select id="channel">
+              <option value="web" selected>web</option>
+              <option value="sms">sms</option>
+            </select>
+            
+            <label for="threadId" style="margin-top: 12px;">Thread ID</label>
+            <div style="display: flex; gap: 8px;">
+              <input id="threadId" placeholder="Auto-generated on first message" readonly style="flex: 1;" />
+              <button class="button-secondary" id="clearThread">Clear</button>
+            </div>
+          </div>
+          
+          <div class="settings-section">
+            <h3 class="collapsible" id="dataCollapsible">Data JSON (required for channel=web)</h3>
+            <div class="collapsible-content" id="dataContent">
+              <textarea id="dataJson">[
+  {
+    "external_id": "practice-001",
+    "name": "Demo Medical Practice",
+    "platform": "PatriotPay",
+    "email_address": "contact@demopractice.com",
+    "phone_number": "555-0100",
+    "patients": [
+      {
+        "external_id": "patient-001",
+        "first_name": "John",
+        "last_name": "Doe",
+        "gender": "M",
+        "phone_number": "555-0101",
+        "email_address": "john.doe@email.com",
+        "dob": "1985-03-15",
+        "claims": [],
+        "patient_payments": []
+      }
+    ]
+  }
+]</textarea>
+            </div>
+          </div>
+          
+          <div class="settings-section">
+            <h3 class="collapsible collapsed" id="logCollapsible">Debug Log</h3>
+            <div class="collapsible-content collapsed" id="logContent">
+              <div id="log" style="background: #1f2937; color: #d1d5db; padding: 12px; border-radius: 6px; font-family: monospace; font-size: 11px; max-height: 300px; overflow-y: auto; white-space: pre-wrap;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const API_KEY = "abcdefg123456uadslvaosdiufdspofu9sp";  // Hardcoded API key
+      const messagesEl = $("messages");
+      const logEl = $("log");
+      const statusDot = $("statusDot");
+      const statusText = $("statusText");
+      let ws = null;
+      let threadId = null;
+      let currentMessage = "";
+
+      function log(line) {
+        logEl.textContent += line + "\n";
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      function updateStatus(connected) {
+        if (connected) {
+          statusDot.classList.add("connected");
+          statusText.textContent = "Connected";
+        } else {
+          statusDot.classList.remove("connected");
+          statusText.textContent = "Disconnected";
+        }
+      }
+
+      function addMessage(text, type = "assistant") {
+        const messageEl = document.createElement("div");
+        messageEl.className = `message ${type}`;
+        
+        if (type === "assistant" || type === "static") {
+          const header = document.createElement("div");
+          header.className = "message-header";
+          header.textContent = type === "static" ? "Static Message" : "Assistant";
+          messageEl.appendChild(header);
+        }
+        
+        const content = document.createElement("div");
+        content.textContent = text;
+        messageEl.appendChild(content);
+        
+        messagesEl.appendChild(messageEl);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+      }
+
+      function buildWsUrl(endpoint, apiKey) {
+        const baseUrl = $("wsBaseUrl").value.trim().replace(/\/$/, "");
+        let url = `${baseUrl}${endpoint}`;
+        if (apiKey) {
+          const separator = url.includes("?") ? "&" : "?";
+          url = `${url}${separator}authorization=${encodeURIComponent(apiKey)}`;
+        }
+        return url;
+      }
+
+      async function getCsrfToken() {
+        const httpBase = $("httpBase").value.trim();
+        if (!httpBase) {
+          log("HTTP Base URL is required for CSRF token");
+          return null;
+        }
+        try {
+          const url = `${httpBase.replace(/\/$/, "")}/api/csrf-token/`;
+          const headers = {
+            "Authorization": API_KEY
+          };
+          const response = await fetch(url, {
+            method: "GET",
+            headers: headers,
+            credentials: "include",
+            mode: "cors"  // Explicitly request CORS
+          });
+          if (!response.ok) {
+            const errorText = await response.text().catch(() => response.statusText);
+            log(`Failed to get CSRF token: ${response.status} ${response.statusText}`);
+            log(`Response: ${errorText}`);
+            // Check if it's a CORS error
+            if (response.status === 0 || response.type === "opaque") {
+              log("CORS error detected. Make sure:");
+              log("1. The server has CORS enabled");
+              log("2. Your origin is in CORS_ALLOWED_ORIGINS");
+              log("3. You're accessing via http:// not file://");
+            }
+            return null;
+          }
+          const data = await response.json();
+          const token = data.csrf_token;
+          if (!token) {
+            log("CSRF token not found in response");
+            return null;
+          }
+          log(`CSRF token obtained: ${token.substring(0, 10)}...`);
+          return { token, cookie: response.headers.get("set-cookie") };
+        } catch (e) {
+          log(`Error fetching CSRF token: ${e.message}`);
+          if (e.message.includes("CORS") || e.message.includes("Failed to fetch")) {
+            log("CORS error detected. Make sure:");
+            log("1. The server has CORS enabled (CORS_ALLOW_ALL_ORIGINS=True in DEBUG mode)");
+            log("2. You're accessing the HTML file via http:// not file://");
+            log("3. The server is running and accessible");
+          }
+          return null;
+        }
+      }
+
+      async function connectToChat() {
+        if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+          log("Already connected/connecting.");
+          return;
+        }
+        
+        // Get CSRF token first
+        const csrf = await getCsrfToken();
+        if (!csrf) {
+          log("Warning: Could not get CSRF token, proceeding anyway...");
+        }
+        
+        // Build WebSocket URL with authorization
+        const url = buildWsUrl("/ws/chat/", API_KEY);
+        
+        log(`Connecting to chat: ${url}`);
+        updateStatus(false);
+        ws = new WebSocket(url);
+        
+        ws.onopen = () => {
+          log("Chat WS open");
+          updateStatus(true);
+          $("sendButton").disabled = false;
+        };
+        
+        ws.onclose = (e) => {
+          log(`Chat WS close code=${e.code} reason=${e.reason || ""}`.trim());
+          updateStatus(false);
+          $("sendButton").disabled = true;
+        };
+        
+        ws.onerror = (e) => {
+          log("Chat WS error (see console)");
+          updateStatus(false);
+        };
+        
+        ws.onmessage = (e) => {
+          try {
+            const msg = JSON.parse(e.data);
+            const msgType = msg.type || msg.event;
+            
+            if (msgType === "connected") {
+              log(`[connected] connection_id=${msg.connection_id}`);
+            } else if (msgType === "thread_initialized") {
+              threadId = msg.thread_id;
+              $("threadId").value = threadId;
+              $("threadIdDisplay").textContent = `Thread ID: ${threadId}`;
+              log(`[thread_initialized] Thread ID: ${threadId}`);
+              addMessage(`Session initialized with thread ID: ${threadId}`, "system");
+            } else if (msgType === "token") {
+              currentMessage += msg.content || "";
+              // Update the last assistant message or create a new one
+              const lastMsg = messagesEl.lastElementChild;
+              if (lastMsg && lastMsg.classList.contains("assistant")) {
+                lastMsg.lastElementChild.textContent = currentMessage;
+              } else {
+                addMessage(msg.content || "", "assistant");
+                currentMessage = msg.content || "";
+              }
+              messagesEl.scrollTop = messagesEl.scrollHeight;
+            } else if (msgType === "static") {
+              addMessage(msg.content || "", "static");
+              log(`[static] ${msg.content}`);
+            } else if (msgType === "escalation") {
+              addMessage(`Escalation detected: ${msg.should_escalate}`, "system");
+              log(`[escalation] should_escalate=${msg.should_escalate}`);
+            } else if (msgType === "end") {
+              currentMessage = "";
+              log(`[end]`);
+            } else if (msgType === "error") {
+              addMessage(`Error: ${msg.message}`, "system");
+              log(`[error] ${msg.message}`);
+            } else {
+              log(`[${msgType}] ${e.data}`);
+            }
+          } catch {
+            log(String(e.data));
+          }
+        };
+      }
+
+      // Auto-connect when page loads
+      connectToChat();
+
+      $("sendButton").addEventListener("click", async () => {
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+          log("Error: Not connected to chat endpoint.");
+          await connectToChat();
+          // Wait a bit for connection
+          await new Promise(resolve => setTimeout(resolve, 500));
+          if (!ws || ws.readyState !== WebSocket.OPEN) {
+            addMessage("Error: Could not connect. Please check your settings.", "system");
+            return;
+          }
+        }
+        
+        const channel = $("channel").value;
+        const message = $("messageInput").value.trim();
+        
+        if (!message) {
+          return;
+        }
+        
+        // Add user message to chat
+        addMessage(message, "user");
+        $("messageInput").value = "";
+        $("messageInput").style.height = "auto";
+        
+        // Build payload
+        const payload = { 
+          type: "chat", 
+          channel, 
+          message
+        };
+        
+        // Add thread_id if we have one
+        if (threadId) {
+          payload.thread_id = threadId;
+        }
+        
+        // Data is required when channel is web
+        if (channel === "web") {
+          const dataJson = $("dataJson").value.trim();
+          if (!dataJson) {
+            addMessage("Error: Data JSON is required when channel is web", "system");
+            return;
+          }
+          try {
+            payload.data = JSON.parse(dataJson);
+          } catch (e) {
+            addMessage(`Error: Invalid data JSON: ${e.message}`, "system");
+            return;
+          }
+        }
+        
+        ws.send(JSON.stringify(payload));
+        log(`[client] sent: ${JSON.stringify(payload)}`);
+      });
+
+      // Handle Enter key (Shift+Enter for new line)
+      $("messageInput").addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          $("sendButton").click();
+        }
+      });
+
+      // Auto-resize textarea
+      $("messageInput").addEventListener("input", function() {
+        this.style.height = "auto";
+        this.style.height = Math.min(this.scrollHeight, 150) + "px";
+      });
+
+      // Clear thread ID
+      $("clearThread").addEventListener("click", () => {
+        threadId = null;
+        $("threadId").value = "";
+        $("threadIdDisplay").textContent = "";
+        addMessage("Thread ID cleared. A new one will be created on next message.", "system");
+      });
+
+      // Collapsible sections
+      $("dataCollapsible").addEventListener("click", function() {
+        this.classList.toggle("collapsed");
+        $("dataContent").classList.toggle("collapsed");
+      });
+
+      $("logCollapsible").addEventListener("click", function() {
+        this.classList.toggle("collapsed");
+        $("logContent").classList.toggle("collapsed");
+      });
+    </script>
+  </body>
+</html>

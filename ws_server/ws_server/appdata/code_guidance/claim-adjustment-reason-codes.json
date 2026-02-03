@@ -1,0 +1,136 @@
+{
+  "CARC": {
+    "description": "",
+    "summary": "",
+    "provider_action": "",
+    "patient_action": "",
+    "reason_codes": {
+      "4": {
+        "description": "The procedure code is inconsistent with the modifier used or a required modifier is missing",
+        "summary": "Coding error made by the provider when submitting the claim.",
+        "provider_action": "Review and correct procedure code modifiers.",
+        "patient_action": "CONTACT PROVIDER - Call your medical provider's billing department to inform them of this coding issue. This is definitely a provider issue. The medical provider's billing department made a coding error when submitting your claim. The insurance company cannot fix this; only the provider can correct and resubmit the claim with proper coding."
+      },
+      "16": {
+        "description": "Claim/service lacks information or has submission/billing error(s).",
+        "summary": "Incomplete claim submitted by provider.",
+        "provider_action": "Review claim for missing or incorrect information.",
+        "patient_action": "CONTACT PROVIDER - Call your healthcare provider immediately to alert them that your claim is missing critical information. This is solely the provider's responsibility. The provider submitted an incomplete claim, and the insurance company needs complete information from the provider, not from you. Your provider needs to resubmit with all required information."
+      },
+      "18": {
+        "description": "Exact duplicate claim/service.",
+        "summary": "Same claim submitted multiple times.",
+        "provider_action": "Verify if claim was previously submitted.",
+        "patient_action": "CONTACT INSURANCE FIRST, THEN PROVIDER - Start by confirming with your insurance if this service was already processed. If confirmed as a duplicate, notify your provider to prevent incorrect billing. The issue originates at the provider (submitting twice) but verification with insurance is the first logical step to confirm if payment was already made."
+      },
+      "22": {
+        "description": "This care may be covered by another payer per coordination of benefits.",
+        "summary": "Multiple insurance policies need proper coordination.",
+        "provider_action": "Submit to primary insurance first.",
+        "patient_action": "CONTACT INSURANCE FIRST, THEN PROVIDER - This is primarily an insurance coordination issue. Contact your insurance companies to verify which plan is primary according to coordination of benefits rules, then inform your provider of the correct order for billing. Both parties need to be involved, but insurance companies determine the coordination rules."
+      },
+      "23": {
+        "description": "The impact of prior payer(s) adjudication including payments and/or adjustments.",
+        "summary": "Issue with how multiple insurances are coordinating payments.",
+        "provider_action": "Ensure appropriate coordination of benefits.",
+        "patient_action": "CONTACT INSURANCE FIRST, THEN PROVIDER - Your primary insurance has processed the claim, but there's an issue with how the secondary insurance is handling it. Verify with both insurance companies first that they have the proper information and EOBs from each other, then contact your provider if they need to submit additional documentation to facilitate proper coordination."
+      },
+      "24": {
+        "description": "Charges are covered under a capitation agreement/managed care plan.",
+        "summary": "Service should be included in a pre-arranged payment agreement.",
+        "provider_action": "Do not bill separately for capitated services.",
+        "patient_action": "CONTACT INSURANCE FIRST, THEN PROVIDER - Your insurance plan has a special payment arrangement with your provider. Confirm with your insurance that this service should be covered under that arrangement, then inform your provider that they should not be billing you separately for services already paid for through the capitation agreement."
+      },
+      "29": {
+        "description": "The time limit for filing has expired.",
+        "summary": "Provider failed to submit claim within required timeframe.",
+        "provider_action": "Submit claims within timely filing limits.",
+        "patient_action": "CONTACT PROVIDER - This is entirely a provider error. They failed to submit your claim within the required timeframe. Your provider should either appeal the timely filing denial with documentation showing when services were provided, or discuss financial options for you given their error. The insurance company cannot waive timely filing requirements without provider documentation."
+      },
+      "31": {
+        "description": "Patient cannot be identified as our insured.",
+        "summary": "Insurance has no record of patient's coverage.",
+        "provider_action": "Verify patient insurance information.",
+        "patient_action": "CONTACT INSURANCE WITH PROVIDER ON CONFERENCE CALL IF POSSIBLE - This requires both parties to resolve. Your insurance company needs your correct policy information, and your provider needs to update their records. A three-way call can be most efficient to resolve identification issues. Bring your current insurance card to your provider's office to update their records, and confirm your insurance effective dates with your insurance company."
+      },
+      "39": {
+        "description": "Services denied at the time authorization/pre-certification was requested.",
+        "summary": "Insurance previously denied authorization for this service.",
+        "provider_action": "Review authorization denial reasons.",
+        "patient_action": "CONTACT PROVIDER FIRST, THEN INSURANCE - Your provider attempted to get authorization but was denied. First, ask your provider why the authorization was denied and if they plan to appeal with additional clinical information. Then contact your insurance to understand the specific denial reason and potential alternative treatments that would be covered. Authorization denials often require clinical documentation from your provider to overcome."
+      },
+      "45": {
+        "description": "Charge exceeds fee schedule/maximum allowable.",
+        "summary": "Provider billed more than the allowed amount.",
+        "provider_action": "Review fee schedule agreements.",
+        "patient_action": "CONTACT PROVIDER - If in-network, the provider must accept the insurance's allowed amount. This is a contractual issue between your provider and insurance. The provider needs to confirm they'll accept the allowed amount and adjust billing accordingly. If out-of-network, check with your insurance about balance billing rules in your state."
+      },
+      "49": {
+        "description": "This is a non-covered service because it is a routine/preventive exam or screening.",
+        "summary": "Service was coded as preventive but isn't covered as such.",
+        "provider_action": "Verify coverage for preventive services.",
+        "patient_action": "CONTACT INSURANCE FIRST, THEN PROVIDER - First verify with your insurance what preventive services are covered under your plan and whether frequency limits apply. Then discuss with your provider whether the service was coded correctly as preventive or if it should have been coded differently based on the medical nature of the visit."
+      },
+      "50": {
+        "description": "These are non-covered services because this is not deemed a medical necessity.",
+        "summary": "Insurance determined service wasn't medically required.",
+        "provider_action": "Provide medical necessity documentation.",
+        "patient_action": "CONTACT PROVIDER FIRST, THEN INSURANCE - Your provider needs to submit documentation supporting why the service was medically necessary. Ask them to submit an appeal with additional clinical documentation, then follow up with your insurance about the appeal process. Only your provider can supply the medical justification needed to overturn this denial."
+      },
+      "96": {
+        "description": "Non-covered charge(s).",
+        "summary": "Service is excluded from your insurance plan.",
+        "provider_action": "Review benefit coverage.",
+        "patient_action": "CONTACT INSURANCE FIRST, THEN PROVIDER - First verify with your insurance exactly which services are excluded from your plan and why. Request the specific exclusion language from your benefits document. Then discuss with your provider about potential alternative services that would be covered or payment options for non-covered services."
+      },
+      "97": {
+        "description": "The benefit for this service is included in the payment/allowance for another service/procedure.",
+        "summary": "Service should be bundled with other procedures.",
+        "provider_action": "Review bundling rules.",
+        "patient_action": "CONTACT PROVIDER - This is a coding issue. Your provider has billed separately for services that should be bundled together. They need to correct their coding according to insurance rules and standard coding practices. The provider is responsible for proper coding and cannot bill you separately for services that should be bundled."
+      },
+      "119": {
+        "description": "Benefit maximum for this time period or occurrence has been reached.",
+        "summary": "You've reached the coverage limit for this service.",
+        "provider_action": "Verify benefit limitations.",
+        "patient_action": "CONTACT INSURANCE - This is an insurance coverage limitation. Your insurance company can confirm what service limits you've reached and when benefits will reset (typically annually). The provider cannot alter these benefit limitations. Ask your insurance if alternative benefits exist or when your benefits will renew."
+      },
+      "125": {
+        "description": "Submission/billing error(s). At least one Remark Code must be provided.",
+        "summary": "Specific billing errors identified on claim.",
+        "provider_action": "Review claim and correct errors.",
+        "patient_action": "CONTACT PROVIDER - Your provider submitted a claim with specific errors that need correction. They need to review the remittance advice for details and resubmit the claim correctly. Additional remark codes should explain the exact nature of the errors that need correction."
+      },
+      "170": {
+        "description": "Payment is denied when performed/billed by this type of provider.",
+        "summary": "Provider not authorized to perform this service.",
+        "provider_action": "Verify provider credentialing requirements.",
+        "patient_action": "CONTACT INSURANCE FIRST, THEN PROVIDER - Your insurance doesn't cover this type of provider for this service. Verify with insurance which provider types are covered for the specific service, then ask your current provider for a referral to an eligible provider. This might require seeing a specialist or different provider type for coverage."
+      },
+      "185": {
+        "description": "The rendering provider is not eligible to perform the service billed.",
+        "summary": "Provider lacks credentials for this specific service.",
+        "provider_action": "Verify provider's eligibility to perform service.",
+        "patient_action": "CONTACT INSURANCE FIRST, THEN PROVIDER - Your provider isn't credentialed or authorized to perform this specific service. Verify with insurance which providers can perform this service, then discuss referral options with your current provider. This may be due to specialty requirements, facility restrictions, or network limitations."
+      },
+      "197": {
+        "description": "Precertification/authorization/notification absent.",
+        "summary": "Provider failed to get required pre-approval.",
+        "provider_action": "Obtain proper authorization before providing service.",
+        "patient_action": "CONTACT PROVIDER - Your provider failed to obtain required pre-authorization. They should attempt to get retroactive authorization by submitting clinical documentation showing medical necessity. Ask your provider specifically if they will pursue retroactive authorization and what documentation they need from you. This is primarily the provider's responsibility for failing to follow insurance requirements."
+      },
+      "204": {
+        "description": "This service/equipment/drug is not covered under the patient's current benefit plan.",
+        "summary": "Service specifically excluded from your insurance plan.",
+        "provider_action": "Verify coverage under patient's specific plan.",
+        "patient_action": "CONTACT INSURANCE FIRST, THEN PROVIDER - First verify with your insurance what specific elements of your plan don't cover this service. Ask for the exact exclusion language in your benefits. Then discuss with your provider about potential alternatives that would be covered under your plan, or about payment options for non-covered services."
+      },
+      "253": {
+        "description": "Sequestration Reduction",
+        "summary": "Medicare-specific 2% reduction.",
+        "provider_action": "Accept adjustment; cannot bill patient",
+        "patient_action": "NO ACTION REQUIRED - This adjustment is due to federal budget requirements affecting Medicare payments. You are not responsible for this amount. If you are billed for this reduction amount, CONTACT PROVIDER as Medicare providers are prohibited from passing this reduction on to patients."
+      }
+    }
+  }
+}
