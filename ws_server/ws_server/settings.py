@@ -14,17 +14,27 @@ import os
 from pathlib import Path
 from typing import List
 
+BASE_DIR = Path(__file__).resolve().parent.parent
+
 try:
-    # Optional: allows local dev to load env vars from a `.env` file.
-    # In production, prefer systemd EnvironmentFile or EC2 launch template env.
     from dotenv import load_dotenv
 
-    load_dotenv()
+    env_paths = [
+        BASE_DIR.parent.parent / ".env",
+        BASE_DIR.parent / ".env",
+        BASE_DIR / ".env",
+        Path(".env"),
+    ]
+    
+    for env_path in env_paths:
+        if env_path.exists():
+            load_dotenv(env_path, override=False)
+            break
+    else:
+        # If no .env found, try default location (current directory)
+        load_dotenv(override=False)
 except Exception:
     pass
-
-
-BASE_DIR = Path(__file__).resolve().parent.parent
 
 
 def _env(name: str, default: str | None = None) -> str | None:
@@ -51,6 +61,17 @@ SECRET_KEY = _env("DJANGO_SECRET_KEY", "dev-insecure-secret-key-change-me")
 if not DEBUG and (not SECRET_KEY or SECRET_KEY.startswith("dev-insecure-")):
     raise RuntimeError("DJANGO_SECRET_KEY must be set in production")
 
+# CSRF protection
+CSRF_SECRET_KEY = _env("CSRF_SECRET_KEY", None)
+# CSRF settings
+CSRF_COOKIE_SECURE = _env_bool("DJANGO_CSRF_COOKIE_SECURE", default=not DEBUG)
+CSRF_COOKIE_HTTPONLY = True
+CSRF_USE_SESSIONS = False
+CSRF_COOKIE_SAMESITE = "Lax"
+# Allow CSRF token in header for API endpoints
+CSRF_HEADER_NAME = "HTTP_X_CSRFTOKEN"
+CSRF_COOKIE_NAME = "csrftoken"
+
 ALLOWED_HOSTS = _env_csv("DJANGO_ALLOWED_HOSTS", default="localhost,127.0.0.1")
 
 # When serving behind an ALB, Django must respect X-Forwarded-* headers.
@@ -75,20 +96,27 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    # CORS headers must be before other apps
+    "corsheaders",
     # Channels must be installed to enable ASGI + websocket routing.
     "channels",
     # Our websocket + redis ownership logic.
-    "realtime.apps.RealtimeConfig",
+    "ws_server.realtime.apps.RealtimeConfig",
+    # Main project app (for graph initialization)
+    "ws_server.apps.WsServerConfig",
 ]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "corsheaders.middleware.CorsMiddleware",  # CORS middleware should be as high as possible
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    # Authorization middleware for API key validation
+    "ws_server.realtime.middleware.AuthMiddleware",
 ]
 
 ROOT_URLCONF = "ws_server.urls"
@@ -179,3 +207,44 @@ LOGGING = {
     "handlers": {"console": {"class": "logging.StreamHandler"}},
     "root": {"handlers": ["console"], "level": _env("DJANGO_LOG_LEVEL", "INFO") or "INFO"},
 }
+
+# AppData folder path for LangGraph prompts and templates
+# Defaults to ws_server/appdata relative to BASE_DIR
+APPDATA_FOLDER_PATH = _env("APPDATA_FOLDER_PATH", None)
+if not APPDATA_FOLDER_PATH:
+    # BASE_DIR is ws_server/ws_server, so appdata is at ws_server/ws_server/appdata
+    APPDATA_FOLDER_PATH = str(BASE_DIR / "appdata")
+
+#
+# CORS configuration
+#
+# In development, allow all origins for easier testing
+# In production, use CORS_ALLOWED_ORIGINS environment variable
+if DEBUG:
+    CORS_ALLOW_ALL_ORIGINS = True
+else:
+    # Allow CORS from configured origins in production
+    CORS_ALLOWED_ORIGINS = _env_csv("CORS_ALLOWED_ORIGINS", default="http://localhost:5500,http://127.0.0.1:5500")
+# Allow credentials (cookies, authorization headers) to be sent
+CORS_ALLOW_CREDENTIALS = True
+# Allow common headers
+CORS_ALLOW_HEADERS = [
+    "accept",
+    "accept-encoding",
+    "authorization",
+    "content-type",
+    "dnt",
+    "origin",
+    "user-agent",
+    "x-csrftoken",
+    "x-requested-with",
+]
+# Allow all methods for CORS
+CORS_ALLOW_METHODS = [
+    "DELETE",
+    "GET",
+    "OPTIONS",
+    "PATCH",
+    "POST",
+    "PUT",
+]

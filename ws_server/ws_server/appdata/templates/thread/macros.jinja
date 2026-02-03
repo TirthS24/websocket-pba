@@ -1,0 +1,11 @@
+{% macro render_chat_history(history) %}
+{% for message in history %}
+{% if message.type == 'ai' %}
+<<AI Assistant>>: {{ message.content }}
+{{ '=' * 80 }}
+{% elif message.type == 'human' %}
+<<Human>>: {{ message.content }}
+{{ '=' * 80 }}
+{% endif %}
+{% endfor %}
+{% endmacro %}

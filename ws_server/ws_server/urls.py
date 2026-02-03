@@ -18,9 +18,16 @@ from django.contrib import admin
 from django.urls import path
 
 from .health import health
+from ws_server.realtime import views
+from ws_server.realtime.csrf_handler import get_csrf_token_view
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     # REQUIRED: health check endpoint for ALB target group
     path("health/", health),
+    # CSRF token endpoint
+    path("api/csrf-token/", get_csrf_token_view, name="csrf_token"),
+    # Thread endpoints
+    path("api/thread/summarize", views.summarize_thread_view, name="summarize"),
+    path("api/thread/history", views.thread_history_view, name="history"),
 ]

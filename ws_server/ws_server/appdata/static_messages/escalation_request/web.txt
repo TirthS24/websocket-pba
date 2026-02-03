@@ -1,0 +1,7 @@
+I understand — you’d like to connect with a member of our patient service team.
+
+Our live patient services center is available {CUSTOMER_SERVICE_HOURS}.
+
+Your request has been received, and a patient service representative will be in touch with you during business hours.
+
+Our conversation will be shared with them to ensure continuity when you connect.
