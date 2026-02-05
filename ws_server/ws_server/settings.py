@@ -64,13 +64,27 @@ if not DEBUG and (not SECRET_KEY or SECRET_KEY.startswith("dev-insecure-")):
 # CSRF protection
 CSRF_SECRET_KEY = _env("CSRF_SECRET_KEY", None)
 # CSRF settings
-CSRF_COOKIE_SECURE = _env_bool("DJANGO_CSRF_COOKIE_SECURE", default=not DEBUG)
+# For cross-origin requests, we need SameSite=None and Secure=True
+# In DEBUG mode (localhost), we can use Lax; in production with CORS, use None
 CSRF_COOKIE_HTTPONLY = True
 CSRF_USE_SESSIONS = False
-CSRF_COOKIE_SAMESITE = "Lax"
 # Allow CSRF token in header for API endpoints
 CSRF_HEADER_NAME = "HTTP_X_CSRFTOKEN"
 CSRF_COOKIE_NAME = "csrftoken"
+# CSRF cookie settings for cross-origin support
+# For cross-origin CORS requests, we need SameSite=None
+# Note: Most browsers require Secure=True with SameSite=None, but localhost is often exempt
+# In DEBUG mode with CORS enabled, use SameSite=None to allow cross-origin cookie sharing
+if DEBUG:
+    # In DEBUG mode with CORS, use SameSite=None to allow cross-origin requests
+    # Some browsers (Chrome, Firefox) allow SameSite=None with Secure=False for localhost
+    CSRF_COOKIE_SAMESITE = "None"
+    # Allow environment override, but default to False for HTTP in DEBUG mode
+    CSRF_COOKIE_SECURE = _env_bool("DJANGO_CSRF_COOKIE_SECURE", default=False)
+else:
+    CSRF_COOKIE_SAMESITE = "None"
+    # In production, Secure must be True for SameSite=None
+    CSRF_COOKIE_SECURE = _env_bool("DJANGO_CSRF_COOKIE_SECURE", default=True)
 
 ALLOWED_HOSTS = _env_csv("DJANGO_ALLOWED_HOSTS", default="localhost,127.0.0.1")
 
@@ -80,7 +94,6 @@ SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 # Optional hardening toggles (recommended in production).
 SESSION_COOKIE_SECURE = _env_bool("DJANGO_SESSION_COOKIE_SECURE", default=not DEBUG)
-CSRF_COOKIE_SECURE = _env_bool("DJANGO_CSRF_COOKIE_SECURE", default=not DEBUG)
 SECURE_SSL_REDIRECT = _env_bool("DJANGO_SECURE_SSL_REDIRECT", default=not DEBUG)
 
 # If you terminate TLS at the ALB, set HSTS at Django *only* if all traffic is HTTPS.
@@ -111,7 +124,7 @@ MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",  # CORS middleware should be as high as possible
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
-    "django.middleware.csrf.CsrfViewMiddleware",
+    "ws_server.realtime.csrf_middleware.ApiCsrfMiddleware",  # Custom CSRF middleware that exempts API endpoints with API key auth
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
@@ -218,13 +231,23 @@ if not APPDATA_FOLDER_PATH:
 #
 # CORS configuration
 #
+# Always allow localhost:5500 and 127.0.0.1:5500
+REQUIRED_CORS_ORIGINS = ["http://localhost:5500", "http://127.0.0.1:5500"]
+
 # In development, allow all origins for easier testing
 # In production, use CORS_ALLOWED_ORIGINS environment variable
 if DEBUG:
     CORS_ALLOW_ALL_ORIGINS = True
 else:
     # Allow CORS from configured origins in production
-    CORS_ALLOWED_ORIGINS = _env_csv("CORS_ALLOWED_ORIGINS", default="http://localhost:5500,http://127.0.0.1:5500")
+    # Always include required origins (localhost:5500 and 127.0.0.1:5500)
+    configured_origins = _env_csv("CORS_ALLOWED_ORIGINS", default="")
+    CORS_ALLOWED_ORIGINS = list(set(REQUIRED_CORS_ORIGINS + configured_origins))
+
+# CSRF trusted origins (required for cross-origin CSRF validation)
+# Always include required origins, regardless of DEBUG mode
+CSRF_TRUSTED_ORIGINS = REQUIRED_CORS_ORIGINS
+
 # Allow credentials (cookies, authorization headers) to be sent
 CORS_ALLOW_CREDENTIALS = True
 # Allow common headers

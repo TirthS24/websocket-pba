@@ -42,6 +42,34 @@
         align-items: center;
       }
       
+      .header-actions {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+      }
+      
+      .header-button {
+        padding: 8px 16px;
+        background: rgba(255, 255, 255, 0.2);
+        color: white;
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        border-radius: 6px;
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background 0.2s, transform 0.2s;
+      }
+      
+      .header-button:hover:not(:disabled) {
+        background: rgba(255, 255, 255, 0.3);
+        transform: translateY(-1px);
+      }
+      
+      .header-button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      
       .header h1 {
         font-size: 24px;
         font-weight: 600;
@@ -203,6 +231,27 @@
         text-align: center;
       }
       
+      .message.summary,
+      .message.history {
+        align-self: flex-start;
+        background: #f0f9ff;
+        color: #0c4a6e;
+        border: 1px solid #bae6fd;
+        border-bottom-left-radius: 4px;
+        max-width: 85%;
+      }
+      
+      .message.summary .message-header,
+      .message.history .message-header {
+        font-weight: 600;
+        opacity: 1;
+      }
+      
+      .message-content {
+        white-space: pre-wrap;
+        word-wrap: break-word;
+      }
+      
       .message-header {
         font-size: 11px;
         opacity: 0.7;
@@ -318,9 +367,13 @@
     <div class="container">
       <div class="header">
         <h1>WebSocket Chat Test</h1>
-        <div class="status">
-          <div class="status-dot" id="statusDot"></div>
-          <span id="statusText">Disconnected</span>
+        <div class="header-actions">
+          <button class="header-button" id="getSummaryButton" disabled>Get Summary</button>
+          <button class="header-button" id="getHistoryButton" disabled>Get History</button>
+          <div class="status">
+            <div class="status-dot" id="statusDot"></div>
+            <span id="statusText">Disconnected</span>
+          </div>
         </div>
       </div>
       
@@ -413,6 +466,7 @@
       let ws = null;
       let threadId = null;
       let currentMessage = "";
+      let csrfToken = null;  // Cache CSRF token to reuse across requests
 
       function log(line) {
         logEl.textContent += line + "\n";
@@ -433,14 +487,23 @@
         const messageEl = document.createElement("div");
         messageEl.className = `message ${type}`;
         
-        if (type === "assistant" || type === "static") {
+        if (type === "assistant" || type === "static" || type === "summary" || type === "history") {
           const header = document.createElement("div");
           header.className = "message-header";
-          header.textContent = type === "static" ? "Static Message" : "Assistant";
+          if (type === "static") {
+            header.textContent = "Static Message";
+          } else if (type === "summary") {
+            header.textContent = "Thread Summary";
+          } else if (type === "history") {
+            header.textContent = "Thread History";
+          } else {
+            header.textContent = "Assistant";
+          }
           messageEl.appendChild(header);
         }
         
         const content = document.createElement("div");
+        content.className = "message-content";
         content.textContent = text;
         messageEl.appendChild(content);
         
@@ -458,7 +521,22 @@
         return url;
       }
 
-      async function getCsrfToken() {
+      async function getCsrfToken(forceRefresh = false) {
+        // Return cached token if available and not forcing refresh
+        if (csrfToken && !forceRefresh) {
+          log(`Using cached CSRF token: ${csrfToken.substring(0, 10)}...`);
+          // Verify cookie is still available
+          const cookieValue = getCookie("csrftoken");
+          if (cookieValue) {
+            log(`CSRF cookie verified: ${cookieValue.substring(0, 10)}...`);
+          } else {
+            log("Warning: CSRF cookie not found, refreshing token...");
+            csrfToken = null;
+            return await getCsrfToken(true);
+          }
+          return { token: csrfToken, cookie: cookieValue };
+        }
+        
         const httpBase = $("httpBase").value.trim();
         if (!httpBase) {
           log("HTTP Base URL is required for CSRF token");
@@ -472,7 +550,7 @@
           const response = await fetch(url, {
             method: "GET",
             headers: headers,
-            credentials: "include",
+            credentials: "include",  // Required for cookies to be set/sent
             mode: "cors"  // Explicitly request CORS
           });
           if (!response.ok) {
@@ -488,14 +566,51 @@
             }
             return null;
           }
+          
+          // Check for Set-Cookie header
+          const setCookieHeader = response.headers.get("set-cookie");
+          if (setCookieHeader) {
+            log(`Set-Cookie header received: ${setCookieHeader.substring(0, 50)}...`);
+          } else {
+            log("Warning: No Set-Cookie header in response");
+          }
+          
           const data = await response.json();
           const token = data.csrf_token;
           if (!token) {
             log("CSRF token not found in response");
             return null;
           }
-          log(`CSRF token obtained: ${token.substring(0, 10)}...`);
-          return { token, cookie: response.headers.get("set-cookie") };
+          
+          // Cache the token for reuse
+          csrfToken = token;
+          log(`CSRF token obtained and cached: ${token.substring(0, 10)}...`);
+          
+          // Verify cookie was set by browser
+          // Wait a brief moment for cookie to be processed
+          await new Promise(resolve => setTimeout(resolve, 100));
+          const cookieValue = getCookie("csrftoken");
+          if (cookieValue) {
+            log(`CSRF cookie verified: ${cookieValue.substring(0, 10)}...`);
+            log("✓ CSRF protection is properly configured");
+          } else {
+            log("⚠ Warning: CSRF cookie not found after fetch. This may cause CSRF errors.");
+            log("Possible causes:");
+            log("1. Browser blocking SameSite=None cookies without Secure flag");
+            log("   - Safari is strict: requires Secure=True with SameSite=None");
+            log("   - Chrome/Firefox on localhost: usually allow Secure=False");
+            log("2. Browser blocking third-party cookies");
+            log("3. CORS not configured to allow credentials");
+            log("");
+            log("Solutions:");
+            log("- Try Chrome or Firefox (more lenient with localhost)");
+            log("- Use HTTPS in production (allows Secure=True)");
+            log("- Serve HTML from same origin as API (avoids cross-origin)");
+            log("");
+            log("Note: Requests may still work if browser sends cookie automatically");
+          }
+          
+          return { token, cookie: cookieValue };
         } catch (e) {
           log(`Error fetching CSRF token: ${e.message}`);
           if (e.message.includes("CORS") || e.message.includes("Failed to fetch")) {
@@ -503,8 +618,153 @@
             log("1. The server has CORS enabled (CORS_ALLOW_ALL_ORIGINS=True in DEBUG mode)");
             log("2. You're accessing the HTML file via http:// not file://");
             log("3. The server is running and accessible");
+            log("4. CORS is configured to allow credentials (Access-Control-Allow-Credentials: true)");
           }
           return null;
+        }
+      }
+      
+      function getCookie(name) {
+        const value = `; ${document.cookie}`;
+        const parts = value.split(`; ${name}=`);
+        if (parts.length === 2) {
+          return parts.pop().split(';').shift();
+        }
+        return null;
+      }
+      
+      async function postJson(path, payload) {
+        const httpBase = $("httpBase").value.trim();
+        if (!httpBase) {
+          log("HTTP Base URL is required");
+          return null;
+        }
+        
+        // Get CSRF token (will use cached token if available)
+        const csrf = await getCsrfToken();
+        if (!csrf) {
+          log("Failed to get CSRF token");
+          return null;
+        }
+        
+        const url = `${httpBase.replace(/\/$/, "")}${path}`;
+        const headers = {
+          "Content-Type": "application/json",
+          "X-CSRFToken": csrf.token,
+        };
+        if (API_KEY) {
+          headers["Authorization"] = API_KEY;
+        }
+        
+        // Verify cookie is available before sending request
+        const cookieValue = getCookie("csrftoken");
+        if (!cookieValue && csrf.cookie) {
+          log("Warning: CSRF cookie not found in document.cookie, but token available");
+        }
+        
+        try {
+          const response = await fetch(url, {
+            method: "POST",
+            headers: headers,
+            body: JSON.stringify(payload),
+            credentials: "include",  // Required: Include cookies (CSRF cookie will be sent automatically)
+            mode: "cors"
+          });
+          
+          // If we get a 403 CSRF error, try refreshing the token once
+          if (response.status === 403) {
+            const errorText = await response.text().catch(() => response.statusText);
+            if (errorText.includes("CSRF") || errorText.includes("csrf")) {
+              log("CSRF validation failed, refreshing token and retrying...");
+              csrfToken = null;  // Clear cache
+              const refreshedCsrf = await getCsrfToken(true);
+              if (refreshedCsrf) {
+                headers["X-CSRFToken"] = refreshedCsrf.token;
+                // Retry the request once
+                const retryResponse = await fetch(url, {
+                  method: "POST",
+                  headers: headers,
+                  body: JSON.stringify(payload),
+                  credentials: "include",
+                  mode: "cors"
+                });
+                if (!retryResponse.ok) {
+                  const retryErrorText = await retryResponse.text().catch(() => retryResponse.statusText);
+                  log(`HTTP ${retryResponse.status} after retry: ${retryErrorText}`);
+                  return null;
+                }
+                const retryText = await retryResponse.text();
+                return retryText ? JSON.parse(retryText) : {};
+              }
+            }
+            log(`HTTP ${response.status}: ${errorText}`);
+            return null;
+          }
+          
+          if (!response.ok) {
+            const errorText = await response.text().catch(() => response.statusText);
+            log(`HTTP ${response.status}: ${errorText}`);
+            return null;
+          }
+          
+          const text = await response.text();
+          const data = text ? JSON.parse(text) : {};
+          return data;
+        } catch (e) {
+          log(`Error in POST request: ${e.message}`);
+          return null;
+        }
+      }
+      
+      async function getSummary() {
+        if (!threadId) {
+          addMessage("Error: No thread ID available. Send a message first.", "system");
+          return;
+        }
+        
+        $("getSummaryButton").disabled = true;
+        addMessage("Fetching thread summary...", "system");
+        log(`[client] Fetching summary for thread_id=${threadId}`);
+        
+        const data = await postJson("/api/thread/summarize", { thread_id: threadId });
+        
+        $("getSummaryButton").disabled = false;
+        
+        if (data && data.summary) {
+          addMessage(data.summary, "summary");
+          log(`[summary] ${data.summary.substring(0, 100)}...`);
+        } else {
+          addMessage("Error: Failed to get summary", "system");
+          log(`[error] Failed to get summary`);
+        }
+      }
+      
+      async function getHistory() {
+        if (!threadId) {
+          addMessage("Error: No thread ID available. Send a message first.", "system");
+          return;
+        }
+        
+        $("getHistoryButton").disabled = true;
+        addMessage("Fetching thread history...", "system");
+        log(`[client] Fetching history for thread_id=${threadId}`);
+        
+        const data = await postJson("/api/thread/history", { thread_id: threadId });
+        
+        $("getHistoryButton").disabled = false;
+        
+        if (data && data.messages) {
+          const historyText = data.messages.map((msg, idx) => {
+            const role = msg.type === "ai" ? "Assistant" : msg.type === "human" ? "User" : msg.type;
+            const content = typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content);
+            return `${idx + 1}. [${role}]: ${content}`;
+          }).join("\n\n");
+          
+          addMessage(historyText || "No messages in history", "history");
+          log(`[history] Retrieved ${data.messages.length} messages`);
+        } else {
+          addMessage("Error: Failed to get history", "system");
+          log(`[error] Failed to get history`);
         }
       }
 
@@ -531,6 +791,11 @@
           log("Chat WS open");
           updateStatus(true);
           $("sendButton").disabled = false;
+          // Enable summary/history buttons if we have a thread_id
+          if (threadId) {
+            $("getSummaryButton").disabled = false;
+            $("getHistoryButton").disabled = false;
+          }
         };
         
         ws.onclose = (e) => {
@@ -557,6 +822,9 @@
               $("threadIdDisplay").textContent = `Thread ID: ${threadId}`;
               log(`[thread_initialized] Thread ID: ${threadId}`);
               addMessage(`Session initialized with thread ID: ${threadId}`, "system");
+              // Enable summary/history buttons now that we have a thread_id
+              $("getSummaryButton").disabled = false;
+              $("getHistoryButton").disabled = false;
             } else if (msgType === "token") {
               currentMessage += msg.content || "";
               // Update the last assistant message or create a new one
@@ -589,6 +857,13 @@
         };
       }
 
+      // Initialize CSRF token on page load (fetch once, reuse for all requests)
+      getCsrfToken().then(csrf => {
+        if (csrf) {
+          log("CSRF token initialized and ready for use");
+        }
+      });
+      
       // Auto-connect when page loads
       connectToChat();
 
@@ -667,7 +942,14 @@
         $("threadId").value = "";
         $("threadIdDisplay").textContent = "";
         addMessage("Thread ID cleared. A new one will be created on next message.", "system");
+        // Disable summary/history buttons when thread is cleared
+        $("getSummaryButton").disabled = true;
+        $("getHistoryButton").disabled = true;
       });
+      
+      // Summary and History button handlers
+      $("getSummaryButton").addEventListener("click", getSummary);
+      $("getHistoryButton").addEventListener("click", getHistory);
 
       // Collapsible sections
       $("dataCollapsible").addEventListener("click", function() {
