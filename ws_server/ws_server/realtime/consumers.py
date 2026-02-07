@@ -336,31 +336,17 @@ class ChatConsumer(AsyncWebsocketConsumer):
             await self.send_json(ErrorEvent(message=f"Invalid chat request: {str(e)}").model_dump())
             return
 
-        # Handle thread_id: generate if not provided, validate if provided
-        thread_id = None
-        is_new_thread = False
+        # Validate and trim thread_id (now mandatory)
+        thread_id = chat_request.thread_id.strip()
+        if not thread_id:
+            await self.send_json(ErrorEvent(message="thread_id cannot be empty").model_dump())
+            return
         
-        if chat_request.thread_id:
-            # Validate and trim existing thread_id
-            thread_id = chat_request.thread_id.strip()
-            if not thread_id:
-                await self.send_json(ErrorEvent(message="thread_id cannot be empty if provided").model_dump())
-                return
-            
-            # Check if session exists
-            existing_session = session_manager.get_session_by_id(thread_id)
-            if not existing_session:
-                await self.send_json(ErrorEvent(
-                    message=f"Session not found: {thread_id}. Please use a valid thread_id or omit it to create a new session."
-                ).model_dump())
-                return
-            
-            # Use existing session
-            self.session = existing_session
-        else:
-            # Generate new thread_id and create session
+        # Check if session exists
+        existing_session = session_manager.get_session_by_id(thread_id)
+        if not existing_session:
+            # Initialize graph if not already initialized (lazy initialization)
             try:
-                # Initialize graph if not already initialized (lazy initialization)
                 if not graph_manager.graph_initialized():
                     logger.info("Initializing LangGraph during session creation...")
                     await graph_manager.initialize_graph()
@@ -372,20 +358,13 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 ).model_dump())
                 return
             
-            # Generate a new thread_id
-            thread_id = str(uuid.uuid4())
-            is_new_thread = True
-            
             # Create new session
             self.session = session_manager.create_session(thread_id, self.connection_id)
-            
-            # Send thread_id to client
-            await self.send_json({
-                "type": "thread_initialized",
-                "thread_id": thread_id,
-            })
+        else:
+            # Use existing session
+            self.session = existing_session
         
-        # Update request with thread_id
+        # Update request with trimmed thread_id
         chat_request.thread_id = thread_id
         
         # Register this connection with the session for cleanup tracking
@@ -399,13 +378,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
     async def _stream_chat_response(self, request: ChatRequest) -> None:
         """Stream chat response using LangGraph."""
-        # Ensure thread_id is always a valid non-empty string
-        thread_id = request.thread_id.strip() if request.thread_id else None
-        if not thread_id:
-            await self.send_json(ErrorEvent(message="thread_id is required and cannot be empty").model_dump())
-            return
-        
-        # Update request object with trimmed thread_id to ensure consistency
+        # thread_id is now mandatory, just ensure it's trimmed
+        thread_id = request.thread_id.strip()
         request.thread_id = thread_id
         
         input_state = create_state_from_chat_request(request)
