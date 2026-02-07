@@ -6,13 +6,9 @@
 
 Django>=4.2,<6.0
 channels>=4.0,<5.0
-channels-redis>=4.1,<5.0
 
 # ASGI server (production; do NOT use Django runserver)
 daphne>=4.0,<5.0
-
-# Redis client used for the ownership store (asyncio support)
-redis>=5.0,<6.0
 
 # Optional helpers for 12-factor configuration
 python-dotenv>=1.0,<2.0
@@ -40,3 +36,8 @@ Jinja2>=3.0.0
 # WebSocket client
 websockets>=11.0,<12.0
 aiohttp>=3.8,<4.0
+
+# Infrastructure dependencies
+aws-cdk-lib>=2.237.1
+constructs>=10.4.5
+python-dotenv>=1.0.0

@@ -8,7 +8,7 @@ from channels.middleware import BaseMiddleware
 from channels.db import database_sync_to_async
 
 # Public paths excluded from authorization
-PUBLIC_PATHS = {"/", "/health", "/admin/"}
+PUBLIC_PATHS = {"/", "/health/", "/admin/", "/api/csrf-token/"}
 
 
 def get_auth_api_key():

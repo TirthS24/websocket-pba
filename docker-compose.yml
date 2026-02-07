@@ -1,10 +1,4 @@
 services:
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    command: ["redis-server", "--appendonly", "no"]
-
   web:
     build: .
     ports:
@@ -13,13 +7,9 @@ services:
       # Load environment variables from .env file in project root
       - .env
     environment:
-      # Point the app at the compose Redis service (NOT localhost inside container)
-      REDIS_URL: redis://redis:6379/0
       # Local/dev defaults (override as needed if not in .env)
       DJANGO_DEBUG: ${DJANGO_DEBUG:-1}
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1}
       INSTANCE_ID: ${INSTANCE_ID:-docker-local}
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-local-dev-change-me}
-    depends_on:
-      - redis
 

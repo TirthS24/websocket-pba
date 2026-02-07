@@ -1,8 +1,3 @@
-#
-# Production-style Docker image for Django Channels (ASGI) using Daphne.
-# This is suitable for local dev and can be adapted for ECS/EC2.
-#
-
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \

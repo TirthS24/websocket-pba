@@ -1,6 +1,18 @@
 # ws_server (Django Channels WebSocket Server)
 
-Production-oriented Django + Channels (ASGI) WebSocket server designed to run behind **AWS ALB + Auto Scaling Group** with a shared **Redis (ElastiCache)** backend.
+Production-oriented Django + Channels (ASGI) WebSocket server designed to run behind **AWS ALB + Auto Scaling Group**.
+
+## Installing dependencies using uv package manager
+echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+
+```bash
+uv --version
+```
+
+```bash
+uv pip install -r requirements.txt
+```
 
 ## Run with Docker Compose
 

@@ -5,6 +5,9 @@ Since API endpoints are already protected by API key auth, they don't need CSRF 
 
 from django.middleware.csrf import CsrfViewMiddleware
 
+# Public paths excluded from CSRF protection
+PUBLIC_PATHS = {"/health/", "/api/csrf-token/"}
+
 
 def get_auth_api_key():
     """Get AUTH_API_KEY from config, with fallback for initialization."""
@@ -24,6 +27,10 @@ class ApiCsrfMiddleware(CsrfViewMiddleware):
     """
 
     def process_view(self, request, callback, callback_args, callback_kwargs):
+        # Exempt public paths from CSRF protection
+        if request.path in PUBLIC_PATHS:
+            return None
+        
         # Check if this is an API endpoint with valid API key authentication
         if self._has_valid_api_key(request):
             # Exempt from CSRF protection - API key auth is sufficient

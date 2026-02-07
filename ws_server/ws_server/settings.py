@@ -3,9 +3,9 @@ Production-ready settings for Django + Channels (ASGI).
 
 Key requirements implemented:
 - Django + Django Channels (ASGI)
-- RedisChannelLayer (NOT InMemoryChannelLayer)
+- InMemoryChannelLayer (works with ALB sticky sessions)
 - Environment-based configuration
-- Works behind AWS ALB + Auto Scaling Group (no sticky sessions)
+- Works behind AWS ALB with sticky sessions enabled
 """
 
 from __future__ import annotations
@@ -86,7 +86,8 @@ else:
     # In production, Secure must be True for SameSite=None
     CSRF_COOKIE_SECURE = _env_bool("DJANGO_CSRF_COOKIE_SECURE", default=True)
 
-ALLOWED_HOSTS = _env_csv("DJANGO_ALLOWED_HOSTS", default="localhost,127.0.0.1")
+ALLOWED_HOSTS = _env_csv("DJANGO_ALLOWED_HOSTS", default=["localhost","127.0.0.1"])
+ALLOWED_HOSTS = [host.strip() for host in ALLOWED_HOSTS if host.strip()]
 
 # When serving behind an ALB, Django must respect X-Forwarded-* headers.
 USE_X_FORWARDED_HOST = True
@@ -94,7 +95,8 @@ SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 # Optional hardening toggles (recommended in production).
 SESSION_COOKIE_SECURE = _env_bool("DJANGO_SESSION_COOKIE_SECURE", default=not DEBUG)
-SECURE_SSL_REDIRECT = _env_bool("DJANGO_SECURE_SSL_REDIRECT", default=not DEBUG)
+SECURE_SSL_REDIRECT = _env_bool("DJANGO_SECURE_SSL_REDIRECT", default=False)
+SECURE_SSL_REDIRECT_EXEMPT = ["/health/"]
 
 # If you terminate TLS at the ALB, set HSTS at Django *only* if all traffic is HTTPS.
 SECURE_HSTS_SECONDS = int(_env("DJANGO_SECURE_HSTS_SECONDS", "0" if DEBUG else "0") or "0")
@@ -113,13 +115,14 @@ INSTALLED_APPS = [
     "corsheaders",
     # Channels must be installed to enable ASGI + websocket routing.
     "channels",
-    # Our websocket + redis ownership logic.
+    # Our websocket logic.
     "ws_server.realtime.apps.RealtimeConfig",
     # Main project app (for graph initialization)
     "ws_server.apps.WsServerConfig",
 ]
 
 MIDDLEWARE = [
+    "ws_server.health_middleware.HealthCheckAllowedHostsMiddleware",  # Allow health checks from ALB private IPs
     "django.middleware.security.SecurityMiddleware",
     "corsheaders.middleware.CorsMiddleware",  # CORS middleware should be as high as possible
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -195,21 +198,15 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 
 #
-# Channels / Redis configuration
+# Channels configuration
 #
-# REQUIREMENT: Use RedisChannelLayer (NOT InMemoryChannelLayer)
+# Using InMemoryChannelLayer since ALB sticky sessions ensure all connections
+# for a session go to the same instance, eliminating the need for cross-instance
+# communication via Redis.
 #
-REDIS_URL = _env("REDIS_URL", "redis://127.0.0.1:6379/0")
 CHANNEL_LAYERS = {
     "default": {
-        "BACKEND": "channels_redis.core.RedisChannelLayer",
-        "CONFIG": {
-            # `hosts` accepts redis:// URLs.
-            "hosts": [REDIS_URL],
-            # Tunables for production safety.
-            "capacity": int(_env("CHANNEL_LAYER_CAPACITY", "1000") or "1000"),
-            "expiry": int(_env("CHANNEL_LAYER_EXPIRY", "60") or "60"),
-        },
+        "BACKEND": "channels.layers.InMemoryChannelLayer",
     }
 }
 
@@ -231,8 +228,21 @@ if not APPDATA_FOLDER_PATH:
 #
 # CORS configuration
 #
-# Always allow localhost:5500 and 127.0.0.1:5500
+# Always allow localhost:5500 and 127.0.0.1:5500 for development
 REQUIRED_CORS_ORIGINS = ["http://localhost:5500", "http://127.0.0.1:5500"]
+
+# Get ALB endpoint from environment (set by deploy.sh)
+# This will be the ALB DNS name with http:// or https:// prefix
+ALB_ENDPOINT = _env("ALB_ENDPOINT", None)
+if ALB_ENDPOINT:
+    # Parse ALB endpoint to create both http and https versions
+    alb_host = ALB_ENDPOINT.replace("http://", "").replace("https://", "").strip()
+    ALB_CORS_ORIGINS = [
+        f"http://{alb_host}",
+        f"https://{alb_host}",
+    ]
+else:
+    ALB_CORS_ORIGINS = []
 
 # In development, allow all origins for easier testing
 # In production, use CORS_ALLOWED_ORIGINS environment variable
@@ -240,13 +250,13 @@ if DEBUG:
     CORS_ALLOW_ALL_ORIGINS = True
 else:
     # Allow CORS from configured origins in production
-    # Always include required origins (localhost:5500 and 127.0.0.1:5500)
+    # Always include: required origins (localhost) + ALB endpoint + custom origins
     configured_origins = _env_csv("CORS_ALLOWED_ORIGINS", default="")
-    CORS_ALLOWED_ORIGINS = list(set(REQUIRED_CORS_ORIGINS + configured_origins))
+    CORS_ALLOWED_ORIGINS = list(set(REQUIRED_CORS_ORIGINS + ALB_CORS_ORIGINS + configured_origins))
 
 # CSRF trusted origins (required for cross-origin CSRF validation)
-# Always include required origins, regardless of DEBUG mode
-CSRF_TRUSTED_ORIGINS = REQUIRED_CORS_ORIGINS
+# Always include required origins + ALB endpoint, regardless of DEBUG mode
+CSRF_TRUSTED_ORIGINS = list(set(REQUIRED_CORS_ORIGINS + ALB_CORS_ORIGINS))
 
 # Allow credentials (cookies, authorization headers) to be sent
 CORS_ALLOW_CREDENTIALS = True
