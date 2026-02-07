@@ -3,58 +3,69 @@ Presence tracking (who is connected) per session_id.
 
 WHY:
 - Channels groups do not provide a way to list members.
-- In an ALB + ASG setup, connections can be spread across instances.
-- Redis is the shared source of truth for presence.
+- With ALB sticky sessions, all connections for a session_id go to the same instance.
+- In-memory storage is sufficient since we don't need cross-instance presence.
 
 Design:
-- One Redis SET per session_id: holds active connection_ids
-  key: ws:presence:session:<session_id>
-- One Redis HASH per connection_id: holds metadata (`from`, `client_type`, timestamps)
-  key: ws:presence:conn:<connection_id>
+- In-memory dictionaries store presence data per instance.
+- One dict per session_id: holds active connection_ids
+- One dict per connection_id: holds metadata (user_type, client_type, timestamps)
 
-Each connection hash has a TTL. A lightweight server-side refresh keeps the TTL alive
+Each connection record has a TTL. A lightweight server-side refresh keeps the TTL alive
 while the socket is connected (no client heartbeat messages required).
 """
 
 from __future__ import annotations
 
-import os
+import asyncio
 import time
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
-import redis.asyncio as redis
-
-
-def _env(name: str, default: Optional[str] = None) -> Optional[str]:
-    v = os.environ.get(name)
-    return v if v not in (None, "") else default
-
-
-def get_redis_url() -> str:
-    return _env("REDIS_URL", "redis://127.0.0.1:6379/0") or "redis://127.0.0.1:6379/0"
+# In-memory storage
+_session_connections: Dict[str, Set[str]] = {}  # session_id -> set of connection_ids
+_connection_data: Dict[str, Dict[str, Any]] = {}  # connection_id -> metadata dict
+_connection_expiry: Dict[str, float] = {}  # connection_id -> expiry timestamp
+_cleanup_task: Optional[asyncio.Task] = None
 
 
-_redis_client: Optional[redis.Redis] = None
+def _ensure_cleanup_task() -> None:
+    """Start background task to clean up expired connections."""
+    global _cleanup_task
+    if _cleanup_task is None or _cleanup_task.done():
+        _cleanup_task = asyncio.create_task(_cleanup_expired_connections())
 
 
-def get_redis() -> redis.Redis:
-    global _redis_client
-    if _redis_client is None:
-        _redis_client = redis.from_url(
-            get_redis_url(),
-            decode_responses=True,
-            health_check_interval=30,
-        )
-    return _redis_client
-
-
-def session_set_key(session_id: str) -> str:
-    return f"ws:presence:session:{session_id}"
-
-
-def conn_hash_key(connection_id: str) -> str:
-    return f"ws:presence:conn:{connection_id}"
+async def _cleanup_expired_connections() -> None:
+    """Background task to periodically clean up expired connections."""
+    while True:
+        try:
+            await asyncio.sleep(30)  # Check every 30 seconds
+            now = time.time()
+            expired = [
+                conn_id
+                for conn_id, expiry in _connection_expiry.items()
+                if expiry < now
+            ]
+            for conn_id in expired:
+                # Remove from connection data
+                if conn_id in _connection_data:
+                    session_id = _connection_data[conn_id].get("session_id")
+                    del _connection_data[conn_id]
+                    # Remove from session set
+                    if session_id and session_id in _session_connections:
+                        _session_connections[session_id].discard(conn_id)
+                        # Clean up empty session sets
+                        if not _session_connections[session_id]:
+                            del _session_connections[session_id]
+                # Remove from expiry tracking
+                if conn_id in _connection_expiry:
+                    del _connection_expiry[conn_id]
+        except asyncio.CancelledError:
+            break
+        except Exception:
+            # Log error but continue cleanup
+            pass
 
 
 @dataclass(frozen=True)
@@ -80,26 +91,41 @@ async def upsert_connection(
 
     This is safe to call multiple times (e.g., after receiving a message with updated `from`).
     """
-
-    r = get_redis()
     now = int(time.time())
-    pipe = r.pipeline()
-    pipe.sadd(session_set_key(session_id), connection_id)
-    pipe.hset(
-        conn_hash_key(connection_id),
-        mapping={
+    
+    # Initialize session set if needed
+    if session_id not in _session_connections:
+        _session_connections[session_id] = set()
+    
+    # Add connection to session set
+    _session_connections[session_id].add(connection_id)
+    
+    # Update or create connection data
+    if connection_id not in _connection_data:
+        _connection_data[connection_id] = {
             "session_id": session_id,
-            # `user_type` is a client-provided identifier (e.g., "admin", "agent", "customer").
             "user_type": user_type,
             "client_type": client_type,
-            # connected_at is first-write-wins; we only set it if missing
-            # (done via HSETNX below)
-            "last_seen": str(now),
-        },
-    )
-    pipe.hsetnx(conn_hash_key(connection_id), "connected_at", str(now))
-    pipe.expire(conn_hash_key(connection_id), ttl_seconds)
-    await pipe.execute()
+            "connected_at": now,
+            "last_seen": now,
+        }
+    else:
+        # Update existing connection
+        _connection_data[connection_id].update({
+            "session_id": session_id,
+            "user_type": user_type,
+            "client_type": client_type,
+            "last_seen": now,
+        })
+        # Preserve connected_at (first-write-wins)
+        if "connected_at" not in _connection_data[connection_id]:
+            _connection_data[connection_id]["connected_at"] = now
+    
+    # Update expiry
+    _connection_expiry[connection_id] = time.time() + ttl_seconds
+    
+    # Ensure cleanup task is running
+    _ensure_cleanup_task()
 
 
 async def refresh_connection(*, connection_id: str, ttl_seconds: int) -> bool:
@@ -107,24 +133,31 @@ async def refresh_connection(*, connection_id: str, ttl_seconds: int) -> bool:
     Refresh TTL + last_seen for a connection.
     Returns True if the record exists, False if it was missing/expired.
     """
-
-    r = get_redis()
+    if connection_id not in _connection_data:
+        return False
+    
     now = int(time.time())
-    key = conn_hash_key(connection_id)
-    pipe = r.pipeline()
-    pipe.exists(key)
-    pipe.hset(key, "last_seen", str(now))
-    pipe.expire(key, ttl_seconds)
-    exists, *_ = await pipe.execute()
-    return bool(exists)
+    _connection_data[connection_id]["last_seen"] = now
+    _connection_expiry[connection_id] = time.time() + ttl_seconds
+    return True
 
 
 async def remove_connection(*, session_id: str, connection_id: str) -> None:
-    r = get_redis()
-    pipe = r.pipeline()
-    pipe.srem(session_set_key(session_id), connection_id)
-    pipe.delete(conn_hash_key(connection_id))
-    await pipe.execute()
+    """Remove a connection from presence tracking."""
+    # Remove from session set
+    if session_id in _session_connections:
+        _session_connections[session_id].discard(connection_id)
+        # Clean up empty session sets
+        if not _session_connections[session_id]:
+            del _session_connections[session_id]
+    
+    # Remove connection data
+    if connection_id in _connection_data:
+        del _connection_data[connection_id]
+    
+    # Remove expiry tracking
+    if connection_id in _connection_expiry:
+        del _connection_expiry[connection_id]
 
 
 async def list_connections(*, session_id: str, cleanup: bool = True) -> List[PresenceMember]:
@@ -133,52 +166,63 @@ async def list_connections(*, session_id: str, cleanup: bool = True) -> List[Pre
 
     If `cleanup=True`, any stale connection_ids found in the session set are removed.
     """
-
-    r = get_redis()
-    ids = await r.smembers(session_set_key(session_id))
-    if not ids:
+    if session_id not in _session_connections:
         return []
-
-    # Pipeline HGETALL for each id (efficient round trips).
-    pipe = r.pipeline()
-    for cid in ids:
-        pipe.hgetall(conn_hash_key(cid))
-    rows: List[Dict[str, str]] = await pipe.execute()
-
+    
+    connection_ids = list(_session_connections[session_id])
     members: List[PresenceMember] = []
     stale: List[str] = []
-    for cid, data in zip(ids, rows):
-        if not data:
-            stale.append(cid)
+    
+    for conn_id in connection_ids:
+        if conn_id not in _connection_data:
+            stale.append(conn_id)
             continue
+        
+        data = _connection_data[conn_id]
         if data.get("session_id") != session_id:
-            # Defensive: wrong-session record; treat as stale from this set.
-            stale.append(cid)
+            # Defensive: wrong-session record; treat as stale
+            stale.append(conn_id)
             continue
+        
+        # Check if expired
+        if conn_id in _connection_expiry and _connection_expiry[conn_id] < time.time():
+            stale.append(conn_id)
+            continue
+        
         try:
-            connected_at = int(data.get("connected_at") or "0")
-        except ValueError:
+            connected_at = int(data.get("connected_at", 0))
+        except (ValueError, TypeError):
             connected_at = 0
+        
         try:
-            last_seen = int(data.get("last_seen") or "0")
-        except ValueError:
+            last_seen = int(data.get("last_seen", 0))
+        except (ValueError, TypeError):
             last_seen = 0
+        
         members.append(
             PresenceMember(
-                connection_id=cid,
+                connection_id=conn_id,
                 session_id=session_id,
-                # Backward compat: old records may still have `from`.
                 user_type=data.get("user_type") or data.get("from") or "anonymous",
                 client_type=data.get("client_type", "unknown"),
                 connected_at=connected_at,
                 last_seen=last_seen,
             )
         )
-
+    
+    # Clean up stale connections
     if cleanup and stale:
-        await r.srem(session_set_key(session_id), *stale)
-
-    # Stable ordering for clients.
+        for conn_id in stale:
+            if conn_id in _connection_data:
+                del _connection_data[conn_id]
+            if conn_id in _connection_expiry:
+                del _connection_expiry[conn_id]
+            _session_connections[session_id].discard(conn_id)
+        
+        # Clean up empty session sets
+        if session_id in _session_connections and not _session_connections[session_id]:
+            del _session_connections[session_id]
+    
+    # Stable ordering for clients
     members.sort(key=lambda m: (m.connected_at, m.connection_id))
     return members
-

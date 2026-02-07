@@ -14,3 +14,7 @@ ws_server/.env
 .env.*
 !example.env
 
+# CDK Infrastructure
+cdk.out/
+cdk.json
+cdk.context.json

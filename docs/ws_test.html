@@ -397,10 +397,10 @@
           <div class="settings-section">
             <h3>Connection Settings</h3>
             <label for="httpBase">HTTP Base URL</label>
-            <input id="httpBase" value="http://localhost:8000" placeholder="http://localhost:8000" />
+            <input id="httpBase" value="http://WebSoc-ALBAE-XmkemFU9P4kp-321802927.us-east-2.elb.amazonaws.com" placeholder="http://WebSoc-ALBAE-XmkemFU9P4kp-321802927.us-east-2.elb.amazonaws.com" />
             
             <label for="wsBaseUrl" style="margin-top: 12px;">WebSocket Base URL</label>
-            <input id="wsBaseUrl" value="ws://localhost:8000" placeholder="ws://localhost:8000" />
+            <input id="wsBaseUrl" value="ws://WebSoc-ALBAE-XmkemFU9P4kp-321802927.us-east-2.elb.amazonaws.com" placeholder="ws://WebSoc-ALBAE-XmkemFU9P4kp-321802927.us-east-2.elb.amazonaws.com" />
           </div>
           
           <div class="settings-section">
@@ -458,7 +458,7 @@
 
     <script>
       const $ = (id) => document.getElementById(id);
-      const API_KEY = "abcdefg123456uadslvaosdiufdspofu9sp";  // Hardcoded API key
+      const API_KEY = "<API_KEY_AUTH>";  // Hardcoded API key
       const messagesEl = $("messages");
       const logEl = $("log");
       const statusDot = $("statusDot");

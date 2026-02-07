@@ -4,7 +4,7 @@ WebSocket consumer for multi-subscriber session streams.
 Key behavior:
 - URL: /ws/session/<session_id>/
 - Multiple clients may connect to the SAME session_id concurrently (listeners).
-- Uses Channels groups (backed by Redis channel layer) for cross-instance fan-out.
+- Uses Channels groups with in-memory channel layer (sticky sessions ensure same instance).
 """
 
 from __future__ import annotations
@@ -34,8 +34,8 @@ class SessionConsumer(AsyncWebsocketConsumer):
     Production-safe consumer.
 
     Notes:
-    - Works behind ALB + AutoScaling (no sticky sessions required).
-    - Uses Redis channel layer for cross-instance broadcast.
+    - Works behind ALB with sticky sessions enabled.
+    - Uses in-memory channel layer (sticky sessions ensure same instance).
     """
 
     def __init__(self, *args: Any, **kwargs: Any):
@@ -69,7 +69,7 @@ class SessionConsumer(AsyncWebsocketConsumer):
         await self.accept()
 
         # Join the session group so this socket receives broadcasts for session_id
-        # across all instances (Redis channel layer fan-out).
+        # within the same instance (in-memory channel layer with sticky sessions).
         await self.channel_layer.group_add(self.group_name, self.channel_name)
 
         # Optional: send an initial "connected" message for clients that want confirmation.
@@ -250,7 +250,7 @@ class SessionConsumer(AsyncWebsocketConsumer):
 
     async def _presence_refresh_loop(self) -> None:
         """
-        Keeps this connection's presence record alive in Redis.
+        Keeps this connection's presence record alive in memory.
 
         No messages are sent to the client (this is not a heartbeat).
         """
