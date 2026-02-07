@@ -7,6 +7,7 @@ class PracticeDetails(BaseModel):
     name: str
     email_address: str
     phone_number: str
+    hours: str
 
 # === Practice ==
 # Root model

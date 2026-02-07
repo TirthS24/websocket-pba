@@ -1,23 +1,25 @@
-from ws_server.applib.models.practice import Practice
-from ws_server.applib.state import StateContext
+from ws_server.applib.models.practice import PracticeDetails
+from ws_server.applib.models.patient import PatientDetails
+from ws_server.applib.models.claim import Claim
 from ws_server.applib.types import Channel
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel
 from typing import Literal, Optional
+class Invoice(BaseModel):
+    """
+    Invoice-level data.
+    This should represent the rolled-up claims that constitute the single invoice we are asking the user to pay.
+    """
+    patient: PatientDetails
+    practice: PracticeDetails
+    claims: list[Claim]
+    stripe_link: str  # The stripe payment link that should be given to the user if they indicate a wish to pay the currently viewed invoice
+    web_app_link: str  # The link to the webapp DOB screen
 
 class ChatRequest(BaseModel):
     message: str
-    thread_id: Optional[str] = None  # Optional: if not provided, a new thread_id will be generated
+    thread_id: str
     channel: Channel
-    data: Optional[list[Practice]] = Field(default=None)
-    context: Optional[StateContext] = Field(default=None)
-    task: Optional[str] = Field(default=None)
-
-    @model_validator(mode='after')
-    def validate_data_for_web_channel(self):
-        """Ensure data is provided when channel is WEB."""
-        if self.channel == Channel.WEB and self.data is None:
-            raise ValueError('data field is required when channel is web')
-        return self
+    invoice: Optional[Invoice] # no invoice data for sms channel
 
 class ThreadRequest(BaseModel):
     thread_id: str
