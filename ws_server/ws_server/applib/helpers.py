@@ -4,6 +4,7 @@ import json
 from langchain_core.messages import HumanMessage
 
 from ws_server.applib.models.api import ChatRequest
+from ws_server.applib.state import StateContext
 
 
 def load_json(path: str | Path) -> dict:
@@ -19,6 +20,9 @@ def get_postgres_conn_string(user: str, password: str, database_name: str, host:
 
 
 def create_state_from_chat_request(request: ChatRequest) -> dict:
+    context = None
+    if request.context is not None:
+        context = StateContext.model_validate(request.context)
 
     return {
         'thread_id': request.thread_id,
@@ -26,5 +30,5 @@ def create_state_from_chat_request(request: ChatRequest) -> dict:
         'channel': request.channel,
         'task': request.task,
         'data': request.data,
-        'context': request.context
+        'context': context
     }

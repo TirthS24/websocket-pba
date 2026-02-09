@@ -397,10 +397,12 @@
           <div class="settings-section">
             <h3>Connection Settings</h3>
             <label for="httpBase">HTTP Base URL</label>
-            <input id="httpBase" value="http://WebSoc-ALBAE-XmkemFU9P4kp-321802927.us-east-2.elb.amazonaws.com" placeholder="http://WebSoc-ALBAE-XmkemFU9P4kp-321802927.us-east-2.elb.amazonaws.com" />
+            <!-- <input id="httpBase" value="http://WebSoc-ALBAE-XmkemFU9P4kp-321802927.us-east-2.elb.amazonaws.com" placeholder="http://WebSoc-ALBAE-XmkemFU9P4kp-321802927.us-east-2.elb.amazonaws.com" /> -->
+            <input id="httpBase" value="http://localhost:8000" />
             
             <label for="wsBaseUrl" style="margin-top: 12px;">WebSocket Base URL</label>
-            <input id="wsBaseUrl" value="ws://WebSoc-ALBAE-XmkemFU9P4kp-321802927.us-east-2.elb.amazonaws.com" placeholder="ws://WebSoc-ALBAE-XmkemFU9P4kp-321802927.us-east-2.elb.amazonaws.com" />
+            <!-- <input id="wsBaseUrl" value="ws://WebSoc-ALBAE-XmkemFU9P4kp-321802927.us-east-2.elb.amazonaws.com" placeholder="ws://WebSoc-ALBAE-XmkemFU9P4kp-321802927.us-east-2.elb.amazonaws.com" /> -->
+            <input id="wsBaseUrl" value="ws://localhost:8000" />
           </div>
           
           <div class="settings-section">
@@ -413,8 +415,8 @@
             
             <label for="threadId" style="margin-top: 12px;">Thread ID</label>
             <div style="display: flex; gap: 8px;">
-              <input id="threadId" placeholder="Auto-generated on first message" readonly style="flex: 1;" />
-              <button class="button-secondary" id="clearThread">Clear</button>
+              <input id="threadId" placeholder="Generated when connecting" readonly style="flex: 1;" />
+              <button class="button-secondary" id="clearThread">New thread</button>
             </div>
           </div>
           
@@ -458,7 +460,7 @@
 
     <script>
       const $ = (id) => document.getElementById(id);
-      const API_KEY = "<API_KEY_AUTH>";  // Hardcoded API key
+      const API_KEY = "abcdefg123456uadslvaosdiufdspofu9sp";  // Hardcoded API key
       const messagesEl = $("messages");
       const logEl = $("log");
       const statusDot = $("statusDot");
@@ -509,6 +511,25 @@
         
         messagesEl.appendChild(messageEl);
         messagesEl.scrollTop = messagesEl.scrollHeight;
+      }
+
+      function generateThreadId() {
+        if (typeof crypto !== "undefined" && crypto.randomUUID) {
+          return crypto.randomUUID();
+        }
+        return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/x/g, () =>
+          ((Math.random() * 16) | 0).toString(16)
+        );
+      }
+
+      function ensureThreadId() {
+        if (!threadId) {
+          threadId = generateThreadId();
+          $("threadId").value = threadId;
+          $("threadIdDisplay").textContent = `Thread ID: ${threadId}`;
+          log(`[client] Generated thread_id: ${threadId}`);
+        }
+        return threadId;
       }
 
       function buildWsUrl(endpoint, apiKey) {
@@ -780,10 +801,13 @@
           log("Warning: Could not get CSRF token, proceeding anyway...");
         }
         
+        // Generate thread_id before connecting (required by chat endpoint)
+        ensureThreadId();
+        
         // Build WebSocket URL with authorization
         const url = buildWsUrl("/ws/chat/", API_KEY);
         
-        log(`Connecting to chat: ${url}`);
+        log(`Connecting to chat: ${url} (thread_id=${threadId})`);
         updateStatus(false);
         ws = new WebSocket(url);
         
@@ -791,11 +815,8 @@
           log("Chat WS open");
           updateStatus(true);
           $("sendButton").disabled = false;
-          // Enable summary/history buttons if we have a thread_id
-          if (threadId) {
-            $("getSummaryButton").disabled = false;
-            $("getHistoryButton").disabled = false;
-          }
+          $("getSummaryButton").disabled = false;
+          $("getHistoryButton").disabled = false;
         };
         
         ws.onclose = (e) => {
@@ -817,14 +838,13 @@
             if (msgType === "connected") {
               log(`[connected] connection_id=${msg.connection_id}`);
             } else if (msgType === "thread_initialized") {
-              threadId = msg.thread_id;
-              $("threadId").value = threadId;
-              $("threadIdDisplay").textContent = `Thread ID: ${threadId}`;
-              log(`[thread_initialized] Thread ID: ${threadId}`);
-              addMessage(`Session initialized with thread ID: ${threadId}`, "system");
-              // Enable summary/history buttons now that we have a thread_id
-              $("getSummaryButton").disabled = false;
-              $("getHistoryButton").disabled = false;
+              // Server may echo thread_id; keep our client-generated one unless server sends a different one
+              if (msg.thread_id) {
+                threadId = msg.thread_id;
+                $("threadId").value = threadId;
+                $("threadIdDisplay").textContent = `Thread ID: ${threadId}`;
+                log(`[thread_initialized] Thread ID: ${threadId}`);
+              }
             } else if (msgType === "token") {
               currentMessage += msg.content || "";
               // Update the last assistant message or create a new one
@@ -840,8 +860,8 @@
               addMessage(msg.content || "", "static");
               log(`[static] ${msg.content}`);
             } else if (msgType === "escalation") {
-              addMessage(`Escalation detected: ${msg.should_escalate}`, "system");
-              log(`[escalation] should_escalate=${msg.should_escalate}`);
+              addMessage(`Escalation: ${msg.content ?? msg.should_escalate ?? "—"}`, "system");
+              log(`[escalation] content=${msg.content ?? msg.should_escalate}`);
             } else if (msgType === "end") {
               currentMessage = "";
               log(`[end]`);
@@ -891,17 +911,17 @@
         $("messageInput").value = "";
         $("messageInput").style.height = "auto";
         
-        // Build payload
+        // Ensure we have a thread_id (required by chat endpoint)
+        ensureThreadId();
+        
+        // Build payload (thread_id required; invoice optional, null when not provided)
         const payload = { 
           type: "chat", 
           channel, 
-          message
+          message,
+          thread_id: threadId,
+          invoice: null
         };
-        
-        // Add thread_id if we have one
-        if (threadId) {
-          payload.thread_id = threadId;
-        }
         
         // Data is required when channel is web
         if (channel === "web") {
@@ -936,15 +956,15 @@
         this.style.height = Math.min(this.scrollHeight, 150) + "px";
       });
 
-      // Clear thread ID
+      // New thread: generate a new thread ID (required by chat endpoint)
       $("clearThread").addEventListener("click", () => {
-        threadId = null;
-        $("threadId").value = "";
-        $("threadIdDisplay").textContent = "";
-        addMessage("Thread ID cleared. A new one will be created on next message.", "system");
-        // Disable summary/history buttons when thread is cleared
-        $("getSummaryButton").disabled = true;
-        $("getHistoryButton").disabled = true;
+        threadId = generateThreadId();
+        $("threadId").value = threadId;
+        $("threadIdDisplay").textContent = `Thread ID: ${threadId}`;
+        addMessage("New thread ID generated. Send a message to start a new conversation.", "system");
+        log(`[client] New thread_id: ${threadId}`);
+        $("getSummaryButton").disabled = false;
+        $("getHistoryButton").disabled = false;
       });
       
       // Summary and History button handlers

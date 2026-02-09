@@ -226,37 +226,18 @@ if not APPDATA_FOLDER_PATH:
     APPDATA_FOLDER_PATH = str(BASE_DIR / "appdata")
 
 #
-# CORS configuration
+# CORS configuration — allow all origins for now (FE client + AUTH/CSRF in place).
+# Restrict CORS_ALLOWED_ORIGINS in production when ready.
 #
-# Always allow localhost:5500 and 127.0.0.1:5500 for development
-REQUIRED_CORS_ORIGINS = ["http://localhost:5500", "http://127.0.0.1:5500"]
+CORS_ALLOW_ALL_ORIGINS = True
 
-# Get ALB endpoint from environment (set by deploy.sh)
-# This will be the ALB DNS name with http:// or https:// prefix
-ALB_ENDPOINT = _env("ALB_ENDPOINT", None)
-if ALB_ENDPOINT:
-    # Parse ALB endpoint to create both http and https versions
-    alb_host = ALB_ENDPOINT.replace("http://", "").replace("https://", "").strip()
-    ALB_CORS_ORIGINS = [
-        f"http://{alb_host}",
-        f"https://{alb_host}",
-    ]
-else:
-    ALB_CORS_ORIGINS = []
-
-# In development, allow all origins for easier testing
-# In production, use CORS_ALLOWED_ORIGINS environment variable
-if DEBUG:
-    CORS_ALLOW_ALL_ORIGINS = True
-else:
-    # Allow CORS from configured origins in production
-    # Always include: required origins (localhost) + ALB endpoint + custom origins
-    configured_origins = _env_csv("CORS_ALLOWED_ORIGINS", default="")
-    CORS_ALLOWED_ORIGINS = list(set(REQUIRED_CORS_ORIGINS + ALB_CORS_ORIGINS + configured_origins))
-
-# CSRF trusted origins (required for cross-origin CSRF validation)
-# Always include required origins + ALB endpoint, regardless of DEBUG mode
-CSRF_TRUSTED_ORIGINS = list(set(REQUIRED_CORS_ORIGINS + ALB_CORS_ORIGINS))
+# CSRF trusted origins (required for cross-origin CSRF validation).
+# Allow any origin scheme+host for now; tighten in production if needed.
+CSRF_TRUSTED_ORIGINS = ["http://localhost", "https://localhost", "http://192.168.2.167", "http://127.0.0.1"]
+# Optional: extend via env, e.g. CORS_ALLOWED_ORIGINS or CSRF_TRUSTED_ORIGINS
+_extra_origins = _env_csv("CORS_ALLOWED_ORIGINS", default="")
+if _extra_origins:
+    CSRF_TRUSTED_ORIGINS = list(set(CSRF_TRUSTED_ORIGINS + _extra_origins))
 
 # Allow credentials (cookies, authorization headers) to be sent
 CORS_ALLOW_CREDENTIALS = True
