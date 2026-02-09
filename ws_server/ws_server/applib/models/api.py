@@ -19,10 +19,7 @@ class ChatRequest(BaseModel):
     message: str
     thread_id: str
     channel: Channel
-    invoice: Optional[Invoice] = None  # no invoice data for sms channel; optional for web until provided
-    task: Optional[str] = None
-    data: Optional[list] = None  # list of Practice for web channel
-    context: Optional[dict] = None  # StateContext-like dict for web channel
+    invoice: Optional[Invoice] = None
 
 class ThreadRequest(BaseModel):
     thread_id: str

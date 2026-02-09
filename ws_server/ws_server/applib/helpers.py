@@ -4,7 +4,6 @@ import json
 from langchain_core.messages import HumanMessage
 
 from ws_server.applib.models.api import ChatRequest
-from ws_server.applib.state import StateContext
 
 
 def load_json(path: str | Path) -> dict:
@@ -20,15 +19,19 @@ def get_postgres_conn_string(user: str, password: str, database_name: str, host:
 
 
 def create_state_from_chat_request(request: ChatRequest) -> dict:
-    context = None
-    if request.context is not None:
-        context = StateContext.model_validate(request.context)
+    """Build initial graph state from a ChatRequest.
 
+    Only request fields (message, thread_id, channel, invoice) are taken from the
+    request. State-only fields (task, data, context) are not part of the API and
+    are set to None here; the graph sets task from intent and builds context from
+    data in add_data_context. To pass task/data/context from the client, add them
+    as optional fields on ChatRequest and include them below.
+    """
     return {
         'thread_id': request.thread_id,
         'messages': [HumanMessage(content=request.message)],
         'channel': request.channel,
-        'task': request.task,
-        'data': request.data,
-        'context': context
+        'task': None,
+        'data': None,
+        'context': None,
     }
