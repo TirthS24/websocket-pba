@@ -458,10 +458,17 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 event_type = event.get('event')
                 node_name = event.get('name')
 
-                # Handle escalation detection
-                if event_type == "on_chain_end":
-                    if node_name == "detect_escalation":
-                        escalation_detected = event.get('data', {}).get('output', {}).get('should_escalate', False)
+                # Handle escalation detection: from detect_escalation node output
+                if event_type == "on_chain_end" and node_name == "detect_escalation":
+                    data = event.get('data') or {}
+                    output = data.get('output') or data
+                    if isinstance(output, dict) and output.get('should_escalate') is True:
+                        escalation_detected = True
+                # Reliable signal: we ran an escalation-respond node, so escalation was detected
+                if event_type == "on_chain_stream" and node_name in (
+                    "escalation_respond", "sms_escalation_request_respond", "web_escalation_request_respond"
+                ):
+                    escalation_detected = True
 
                 # Handle streaming tokens from LLM model calls
                 # This captures streaming chunks from web_respond, sms_respond, and other LLM nodes
@@ -534,15 +541,16 @@ class ChatConsumer(AsyncWebsocketConsumer):
                                 if text:
                                     await self.send_json({"type": "static", "content": text})
             
-            # Send escalation event if detected
-            if escalation_detected:
-                await self.send_json({"type": "escalation", "should_escalate": escalation_detected})
+            # Always send escalation message before end event
+            escalation_message = "true" if escalation_detected else "false"
+            await self.send_json({"type": "escalation", "content": escalation_message})
 
             # Send end event
             await self.send_json({"type": "end"})
 
         except asyncio.CancelledError:
-            # Session was cancelled, send end event
+            # Session was cancelled, send escalation message (default to false) and end event
+            await self.send_json({"type": "escalation", "content": None})
             await self.send_json({"type": "end"})
         except Exception as e:
             logger.exception("ChatConsumer streaming error (thread_id=%s)", getattr(request, "thread_id", None))
