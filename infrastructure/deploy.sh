@@ -85,6 +85,7 @@ echo -e "${YELLOW}  Building image for $BUILD_PLATFORM platform (no cache to avo
 DOCKER_BUILDKIT=0 docker build \
     --platform "$BUILD_PLATFORM" \
     --pull \
+    --no-cache \
     -t "${ECR_REPOSITORY_NAME}:${IMAGE_TAG}" \
     -f Dockerfile .
 
