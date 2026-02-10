@@ -30,4 +30,5 @@ urlpatterns = [
     # Thread endpoints
     path("api/thread/summarize", views.summarize_thread_view, name="summarize"),
     path("api/thread/history", views.thread_history_view, name="history"),
+    path("api/chat/sms", views.sms_chat_view, name="sms_chat"),
 ]

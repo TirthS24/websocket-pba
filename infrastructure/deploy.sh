@@ -41,7 +41,12 @@ fi
 
 # Construct ECR repository URI
 ECR_REPOSITORY_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY_NAME}"
-IMAGE_TAG="${ECR_IMAGE_TAG:-latest}"
+# Use timestamp as tag so ECS always pulls the new image (avoids "latest" cache).
+# If ECR_IMAGE_TAG is set and is not "latest", use it; otherwise use timestamp.
+IMAGE_TAG="${ECR_IMAGE_TAG:-$(date +%Y%m%d%H%M%S)}"
+if [ "$IMAGE_TAG" = "latest" ]; then
+    IMAGE_TAG="$(date +%Y%m%d%H%M%S)"
+fi
 IMAGE_URI="${ECR_REPOSITORY_URI}:${IMAGE_TAG}"
 
 echo -e "${YELLOW}Configuration:${NC}"

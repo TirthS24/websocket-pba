@@ -397,21 +397,22 @@
           <div class="settings-section">
             <h3>Connection Settings</h3>
             <label for="httpBase">HTTP Base URL</label>
-            <input id="httpBase" value="http://WebSoc-ALBAE-XmkemFU9P4kp-321802927.us-east-2.elb.amazonaws.com" placeholder="http://WebSoc-ALBAE-XmkemFU9P4kp-321802927.us-east-2.elb.amazonaws.com" />
-            <!-- <input id="httpBase" value="http://localhost:8000" /> -->
+            <!-- <input id="httpBase" value="http://WebSoc-ALBAE-XmkemFU9P4kp-321802927.us-east-2.elb.amazonaws.com" placeholder="http://WebSoc-ALBAE-XmkemFU9P4kp-321802927.us-east-2.elb.amazonaws.com" /> -->
+            <input id="httpBase" value="http://localhost:8000" />
             
             <label for="wsBaseUrl" style="margin-top: 12px;">WebSocket Base URL</label>
-            <input id="wsBaseUrl" value="ws://WebSoc-ALBAE-XmkemFU9P4kp-321802927.us-east-2.elb.amazonaws.com" placeholder="ws://WebSoc-ALBAE-XmkemFU9P4kp-321802927.us-east-2.elb.amazonaws.com" />
-            <!-- <input id="wsBaseUrl" value="ws://localhost:8000" /> -->
+            <!-- <input id="wsBaseUrl" value="ws://WebSoc-ALBAE-XmkemFU9P4kp-321802927.us-east-2.elb.amazonaws.com" placeholder="ws://WebSoc-ALBAE-XmkemFU9P4kp-321802927.us-east-2.elb.amazonaws.com" /> -->
+            <input id="wsBaseUrl" value="ws://localhost:8000" />
           </div>
           
           <div class="settings-section">
             <h3>Chat Settings</h3>
             <label for="channel">Channel</label>
             <select id="channel">
-              <option value="web" selected>web</option>
-              <option value="sms">sms</option>
+              <option value="web" selected>web (WebSocket)</option>
+              <option value="sms">sms (REST)</option>
             </select>
+            <p id="channelHint" style="font-size: 11px; color: #6b7280; margin-top: 6px;">WebSocket streaming. Data JSON and optional invoice are sent.</p>
             
             <label for="threadId" style="margin-top: 12px;">Thread ID</label>
             <div style="display: flex; gap: 8px;">
@@ -460,7 +461,7 @@
 
     <script>
       const $ = (id) => document.getElementById(id);
-      const API_KEY = "<API_KEY>";  // Hardcoded API key
+      const API_KEY = "abcdefg123456uadslvaosdiufdspofu9sp";  // Hardcoded API key
       const messagesEl = $("messages");
       const logEl = $("log");
       const statusDot = $("statusDot");
@@ -822,7 +823,7 @@
         ws.onclose = (e) => {
           log(`Chat WS close code=${e.code} reason=${e.reason || ""}`.trim());
           updateStatus(false);
-          $("sendButton").disabled = true;
+          $("sendButton").disabled = $("channel").value === "web";
         };
         
         ws.onerror = (e) => {
@@ -884,21 +885,15 @@
         }
       });
       
-      // Auto-connect when page loads
+      // Auto-connect when page loads (for web channel)
       connectToChat();
+      // Ensure Send button state matches channel (SMS can send without connection)
+      if ($("channel").value === "sms") {
+        $("sendButton").disabled = false;
+        $("channelHint").textContent = "REST API. No invoice or data sent; full response in one reply.";
+      }
 
       $("sendButton").addEventListener("click", async () => {
-        if (!ws || ws.readyState !== WebSocket.OPEN) {
-          log("Error: Not connected to chat endpoint.");
-          await connectToChat();
-          // Wait a bit for connection
-          await new Promise(resolve => setTimeout(resolve, 500));
-          if (!ws || ws.readyState !== WebSocket.OPEN) {
-            addMessage("Error: Could not connect. Please check your settings.", "system");
-            return;
-          }
-        }
-        
         const channel = $("channel").value;
         const message = $("messageInput").value.trim();
         
@@ -906,36 +901,71 @@
           return;
         }
         
+        // Ensure we have a thread_id (required by both endpoints)
+        ensureThreadId();
+        
         // Add user message to chat
         addMessage(message, "user");
         $("messageInput").value = "";
         $("messageInput").style.height = "auto";
         
-        // Ensure we have a thread_id (required by chat endpoint)
-        ensureThreadId();
+        if (channel === "sms") {
+          // SMS: call REST endpoint; no invoice, no data
+          const payload = { message, thread_id: threadId };
+          log(`[client] POST /api/chat/sms: ${JSON.stringify(payload)}`);
+          $("sendButton").disabled = true;
+          try {
+            const data = await postJson("/api/chat/sms", payload);
+            $("sendButton").disabled = false;
+            if (data && (data.message !== undefined || data.detail)) {
+              if (data.detail) {
+                addMessage(`Error: ${typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail)}`, "system");
+                log(`[error] SMS API: ${data.detail}`);
+              } else {
+                addMessage(data.message || "", "assistant");
+                log(`[sms] response message length=${(data.message || "").length}`);
+              }
+            } else {
+              addMessage("Error: No response from SMS endpoint", "system");
+              log("[error] SMS API: no message or detail in response");
+            }
+          } catch (e) {
+            $("sendButton").disabled = false;
+            addMessage(`Error: ${e.message}`, "system");
+            log(`[error] SMS request failed: ${e.message}`);
+          }
+          return;
+        }
         
-        // Build payload (thread_id required; invoice optional, null when not provided)
+        // Web: use WebSocket; require connection
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+          log("Error: Not connected to chat endpoint.");
+          await connectToChat();
+          await new Promise(resolve => setTimeout(resolve, 500));
+          if (!ws || ws.readyState !== WebSocket.OPEN) {
+            addMessage("Error: Could not connect. Please check your settings.", "system");
+            return;
+          }
+        }
+        
         const payload = { 
           type: "chat", 
-          channel, 
+          channel: "web", 
           message,
           thread_id: threadId,
           invoice: null
         };
         
-        // Data is required when channel is web
-        if (channel === "web") {
-          const dataJson = $("dataJson").value.trim();
-          if (!dataJson) {
-            addMessage("Error: Data JSON is required when channel is web", "system");
-            return;
-          }
-          try {
-            payload.data = JSON.parse(dataJson);
-          } catch (e) {
-            addMessage(`Error: Invalid data JSON: ${e.message}`, "system");
-            return;
-          }
+        const dataJson = $("dataJson").value.trim();
+        if (!dataJson) {
+          addMessage("Error: Data JSON is required when channel is web", "system");
+          return;
+        }
+        try {
+          payload.data = JSON.parse(dataJson);
+        } catch (e) {
+          addMessage(`Error: Invalid data JSON: ${e.message}`, "system");
+          return;
         }
         
         ws.send(JSON.stringify(payload));
@@ -954,6 +984,19 @@
       $("messageInput").addEventListener("input", function() {
         this.style.height = "auto";
         this.style.height = Math.min(this.scrollHeight, 150) + "px";
+      });
+
+      // Channel change: update hint and Send button state (SMS does not require WS connection)
+      $("channel").addEventListener("change", () => {
+        const ch = $("channel").value;
+        const hint = $("channelHint");
+        if (ch === "sms") {
+          hint.textContent = "REST API. No invoice or data sent; full response in one reply.";
+          $("sendButton").disabled = false;
+        } else {
+          hint.textContent = "WebSocket streaming. Data JSON and optional invoice are sent.";
+          $("sendButton").disabled = !ws || ws.readyState !== WebSocket.OPEN;
+        }
       });
 
       // New thread: generate a new thread ID (required by chat endpoint)

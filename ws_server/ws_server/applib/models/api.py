@@ -21,6 +21,13 @@ class ChatRequest(BaseModel):
     channel: Channel
     invoice: Optional[Invoice] = None
 
+
+class SmsChatRequest(BaseModel):
+    """Request body for the REST SMS chat endpoint. Channel is always sms."""
+    message: str
+    thread_id: str
+    invoice: Optional[Invoice] = None
+
 class ThreadRequest(BaseModel):
     thread_id: str
 
