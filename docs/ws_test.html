@@ -403,6 +403,9 @@
             <label for="wsBaseUrl" style="margin-top: 12px;">WebSocket Base URL</label>
             <!-- <input id="wsBaseUrl" value="ws://WebSoc-ALBAE-XmkemFU9P4kp-321802927.us-east-2.elb.amazonaws.com" placeholder="ws://WebSoc-ALBAE-XmkemFU9P4kp-321802927.us-east-2.elb.amazonaws.com" /> -->
             <input id="wsBaseUrl" value="ws://localhost:8000" />
+            <label for="apiKey" style="margin-top: 12px;">API Key</label>
+            <input id="apiKey" type="password" value="{API_KEY}" placeholder="Must match server AUTH_API_KEY" autocomplete="off" />
+            <p style="font-size: 11px; color: #6b7280; margin-top: 4px;">Required. Auth is API key only (no CSRF or cookies). Must match server AUTH_API_KEY.</p>
           </div>
           
           <div class="settings-section">
@@ -461,7 +464,10 @@
 
     <script>
       const $ = (id) => document.getElementById(id);
-      const API_KEY = "<API_KEY>";  // Hardcoded API key
+      function getApiKey() {
+        const el = $("apiKey");
+        return (el && el.value != null) ? String(el.value).trim() : "";
+      }
       const messagesEl = $("messages");
       const logEl = $("log");
       const statusDot = $("statusDot");
@@ -469,7 +475,6 @@
       let ws = null;
       let threadId = null;
       let currentMessage = "";
-      let csrfToken = null;  // Cache CSRF token to reuse across requests
 
       function log(line) {
         logEl.textContent += line + "\n";
@@ -543,195 +548,32 @@
         return url;
       }
 
-      async function getCsrfToken(forceRefresh = false) {
-        // Return cached token if available and not forcing refresh
-        if (csrfToken && !forceRefresh) {
-          log(`Using cached CSRF token: ${csrfToken.substring(0, 10)}...`);
-          // Verify cookie is still available
-          const cookieValue = getCookie("csrftoken");
-          if (cookieValue) {
-            log(`CSRF cookie verified: ${cookieValue.substring(0, 10)}...`);
-          } else {
-            log("Warning: CSRF cookie not found, refreshing token...");
-            csrfToken = null;
-            return await getCsrfToken(true);
-          }
-          return { token: csrfToken, cookie: cookieValue };
-        }
-        
-        const httpBase = $("httpBase").value.trim();
-        if (!httpBase) {
-          log("HTTP Base URL is required for CSRF token");
-          return null;
-        }
-        try {
-          const url = `${httpBase.replace(/\/$/, "")}/api/csrf-token/`;
-          const headers = {
-            "Authorization": API_KEY
-          };
-          const response = await fetch(url, {
-            method: "GET",
-            headers: headers,
-            credentials: "include",  // Required for cookies to be set/sent
-            mode: "cors"  // Explicitly request CORS
-          });
-          if (!response.ok) {
-            const errorText = await response.text().catch(() => response.statusText);
-            log(`Failed to get CSRF token: ${response.status} ${response.statusText}`);
-            log(`Response: ${errorText}`);
-            // Check if it's a CORS error
-            if (response.status === 0 || response.type === "opaque") {
-              log("CORS error detected. Make sure:");
-              log("1. The server has CORS enabled");
-              log("2. Your origin is in CORS_ALLOWED_ORIGINS");
-              log("3. You're accessing via http:// not file://");
-            }
-            return null;
-          }
-          
-          // Check for Set-Cookie header
-          const setCookieHeader = response.headers.get("set-cookie");
-          if (setCookieHeader) {
-            log(`Set-Cookie header received: ${setCookieHeader.substring(0, 50)}...`);
-          } else {
-            log("Warning: No Set-Cookie header in response");
-          }
-          
-          const data = await response.json();
-          const token = data.csrf_token;
-          if (!token) {
-            log("CSRF token not found in response");
-            return null;
-          }
-          
-          // Cache the token for reuse
-          csrfToken = token;
-          log(`CSRF token obtained and cached: ${token.substring(0, 10)}...`);
-          
-          // Verify cookie was set by browser
-          // Wait a brief moment for cookie to be processed
-          await new Promise(resolve => setTimeout(resolve, 100));
-          const cookieValue = getCookie("csrftoken");
-          if (cookieValue) {
-            log(`CSRF cookie verified: ${cookieValue.substring(0, 10)}...`);
-            log("✓ CSRF protection is properly configured");
-          } else {
-            log("⚠ Warning: CSRF cookie not found after fetch. This may cause CSRF errors.");
-            log("Possible causes:");
-            log("1. Browser blocking SameSite=None cookies without Secure flag");
-            log("   - Safari is strict: requires Secure=True with SameSite=None");
-            log("   - Chrome/Firefox on localhost: usually allow Secure=False");
-            log("2. Browser blocking third-party cookies");
-            log("3. CORS not configured to allow credentials");
-            log("");
-            log("Solutions:");
-            log("- Try Chrome or Firefox (more lenient with localhost)");
-            log("- Use HTTPS in production (allows Secure=True)");
-            log("- Serve HTML from same origin as API (avoids cross-origin)");
-            log("");
-            log("Note: Requests may still work if browser sends cookie automatically");
-          }
-          
-          return { token, cookie: cookieValue };
-        } catch (e) {
-          log(`Error fetching CSRF token: ${e.message}`);
-          if (e.message.includes("CORS") || e.message.includes("Failed to fetch")) {
-            log("CORS error detected. Make sure:");
-            log("1. The server has CORS enabled (CORS_ALLOW_ALL_ORIGINS=True in DEBUG mode)");
-            log("2. You're accessing the HTML file via http:// not file://");
-            log("3. The server is running and accessible");
-            log("4. CORS is configured to allow credentials (Access-Control-Allow-Credentials: true)");
-          }
-          return null;
-        }
-      }
-      
-      function getCookie(name) {
-        const value = `; ${document.cookie}`;
-        const parts = value.split(`; ${name}=`);
-        if (parts.length === 2) {
-          return parts.pop().split(';').shift();
-        }
-        return null;
-      }
-      
       async function postJson(path, payload) {
         const httpBase = $("httpBase").value.trim();
         if (!httpBase) {
           log("HTTP Base URL is required");
           return null;
         }
-        
-        // Get CSRF token (will use cached token if available)
-        const csrf = await getCsrfToken();
-        if (!csrf) {
-          log("Failed to get CSRF token");
-          return null;
-        }
-        
         const url = `${httpBase.replace(/\/$/, "")}${path}`;
-        const headers = {
-          "Content-Type": "application/json",
-          "X-CSRFToken": csrf.token,
-        };
-        if (API_KEY) {
-          headers["Authorization"] = API_KEY;
+        const headers = { "Content-Type": "application/json" };
+        if (getApiKey()) {
+          headers["Authorization"] = getApiKey();
         }
-        
-        // Verify cookie is available before sending request
-        const cookieValue = getCookie("csrftoken");
-        if (!cookieValue && csrf.cookie) {
-          log("Warning: CSRF cookie not found in document.cookie, but token available");
-        }
-        
         try {
           const response = await fetch(url, {
             method: "POST",
             headers: headers,
             body: JSON.stringify(payload),
-            credentials: "include",  // Required: Include cookies (CSRF cookie will be sent automatically)
+            credentials: "omit",
             mode: "cors"
           });
-          
-          // If we get a 403 CSRF error, try refreshing the token once
-          if (response.status === 403) {
-            const errorText = await response.text().catch(() => response.statusText);
-            if (errorText.includes("CSRF") || errorText.includes("csrf")) {
-              log("CSRF validation failed, refreshing token and retrying...");
-              csrfToken = null;  // Clear cache
-              const refreshedCsrf = await getCsrfToken(true);
-              if (refreshedCsrf) {
-                headers["X-CSRFToken"] = refreshedCsrf.token;
-                // Retry the request once
-                const retryResponse = await fetch(url, {
-                  method: "POST",
-                  headers: headers,
-                  body: JSON.stringify(payload),
-                  credentials: "include",
-                  mode: "cors"
-                });
-                if (!retryResponse.ok) {
-                  const retryErrorText = await retryResponse.text().catch(() => retryResponse.statusText);
-                  log(`HTTP ${retryResponse.status} after retry: ${retryErrorText}`);
-                  return null;
-                }
-                const retryText = await retryResponse.text();
-                return retryText ? JSON.parse(retryText) : {};
-              }
-            }
-            log(`HTTP ${response.status}: ${errorText}`);
-            return null;
-          }
-          
           if (!response.ok) {
             const errorText = await response.text().catch(() => response.statusText);
             log(`HTTP ${response.status}: ${errorText}`);
             return null;
           }
-          
           const text = await response.text();
-          const data = text ? JSON.parse(text) : {};
-          return data;
+          return text ? JSON.parse(text) : {};
         } catch (e) {
           log(`Error in POST request: ${e.message}`);
           return null;
@@ -796,19 +638,9 @@
           return;
         }
         
-        // Get CSRF token first
-        const csrf = await getCsrfToken();
-        if (!csrf) {
-          log("Warning: Could not get CSRF token, proceeding anyway...");
-        }
-        
-        // Generate thread_id before connecting (required by chat endpoint)
         ensureThreadId();
-        
-        // Build WebSocket URL with authorization
-        const url = buildWsUrl("/ws/chat/", API_KEY);
-        
-        log(`Connecting to chat: ${url} (thread_id=${threadId})`);
+        const url = buildWsUrl("/ws/chat/", getApiKey());
+        log(`Connecting to chat: ${url.replace(/authorization=[^&]+/, "authorization=***")} (thread_id=${threadId})`);
         updateStatus(false);
         ws = new WebSocket(url);
         
@@ -878,14 +710,6 @@
         };
       }
 
-      // Initialize CSRF token on page load (fetch once, reuse for all requests)
-      getCsrfToken().then(csrf => {
-        if (csrf) {
-          log("CSRF token initialized and ready for use");
-        }
-      });
-      
-      // Auto-connect when page loads (for web channel)
       connectToChat();
       // Ensure Send button state matches channel (SMS can send without connection)
       if ($("channel").value === "sms") {
