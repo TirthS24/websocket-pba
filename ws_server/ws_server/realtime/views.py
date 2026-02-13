@@ -208,7 +208,8 @@ async def summarize_thread(thread_id: str) -> str:
     ]
 
     response = await llm.ainvoke(messages)
-    return response.content
+    text = extract_message_content(response)
+    return text if text is not None else ""
 
 
 @require_http_methods(["POST"])
