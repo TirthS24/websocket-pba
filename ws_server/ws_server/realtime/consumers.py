@@ -28,6 +28,9 @@ from langchain_core.messages import AIMessage
 
 logger = logging.getLogger(__name__)
 
+# Chunk size for streaming validated response to the frontend (chars per token event)
+VALIDATED_RESPONSE_CHUNK_SIZE = 12
+
 
 class SessionConsumer(AsyncWebsocketConsumer):
     """
@@ -449,7 +452,16 @@ class ChatConsumer(AsyncWebsocketConsumer):
             # The config must include 'thread_id' in 'configurable' for the checkpointer to work
             # Track which nodes we've already processed to avoid duplicates
             processed_nodes = set()
-            
+            # When True, we are inside the guardrail subgraph (post_validate); do not stream its internal LLM output
+            inside_guardrail_subgraph = False
+            guardrail_node_names = ("sms_post_validate", "web_post_validate")
+            # When guardrail is skipped, AI response is appended by these nodes; stream their output in chunks too
+            append_ai_no_guardrail_nodes = ("sms_append_ai_no_guardrail", "web_append_ai_no_guardrail")
+            nodes_that_emit_ai_response = guardrail_node_names + append_ai_no_guardrail_nodes
+            # Respond nodes are non-streaming; we only stream the validated response after post_validate
+            respond_node_names = ("sms_respond", "web_respond")
+            validated_response_sent = False
+
             async for event in graph.astream_events(input_state, config=graph_config, version="v2"):
                 if not self.session or not self.session.is_active:
                     # Session was cancelled
@@ -457,6 +469,48 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
                 event_type = event.get('event')
                 node_name = event.get('name')
+
+                # Track when we enter/leave the guardrail subgraph so we don't stream its internal output
+                if event_type == "on_chain_start" and node_name in guardrail_node_names:
+                    inside_guardrail_subgraph = True
+                if event_type == "on_chain_end" and node_name in guardrail_node_names:
+                    inside_guardrail_subgraph = False
+                # Stream the main AI response in chunks (from post_validate or append_ai_no_guardrail)
+                if event_type == "on_chain_end" and node_name in nodes_that_emit_ai_response and not validated_response_sent:
+                    data = event.get('data') or {}
+                    output = data.get('output') or data
+                    if isinstance(output, dict) and output.get('messages'):
+                        msgs = output['messages']
+                        if msgs and (isinstance(msgs[0], AIMessage) or (hasattr(msgs[0], 'type') and getattr(msgs[0], 'type', None) == 'ai')):
+                            content = getattr(msgs[0], 'content', None)
+                            text = ""
+                            if isinstance(content, list) and len(content) > 0:
+                                text_item = content[0]
+                                if isinstance(text_item, dict) and text_item.get('type') == 'text':
+                                    text = text_item.get('text', '')
+                            elif isinstance(content, str):
+                                text = content or ""
+                            if text:
+                                await self._stream_validated_response_in_chunks(text)
+                                validated_response_sent = True
+                # When respond node fails it returns out_of_scope fallback in messages; stream that in chunks
+                if event_type == "on_chain_end" and node_name in respond_node_names and not validated_response_sent:
+                    data = event.get('data') or {}
+                    output = data.get('output') or data
+                    if isinstance(output, dict) and output.get('messages'):
+                        msgs = output['messages']
+                        if msgs and (isinstance(msgs[0], AIMessage) or (hasattr(msgs[0], 'type') and getattr(msgs[0], 'type', None) == 'ai')):
+                            content = getattr(msgs[0], 'content', None)
+                            text = ""
+                            if isinstance(content, list) and len(content) > 0:
+                                text_item = content[0]
+                                if isinstance(text_item, dict) and text_item.get('type') == 'text':
+                                    text = text_item.get('text', '')
+                            elif isinstance(content, str):
+                                text = content or ""
+                            if text:
+                                await self._stream_validated_response_in_chunks(text)
+                                validated_response_sent = True
 
                 # Handle escalation detection: from detect_escalation node output
                 if event_type == "on_chain_end" and node_name == "detect_escalation":
@@ -470,53 +524,37 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 ):
                     escalation_detected = True
 
-                # Handle streaming tokens from LLM model calls
-                # This captures streaming chunks from web_respond, sms_respond, and other LLM nodes
-                # LangGraph's astream_events automatically captures streaming from LLM calls
-                # Chunks come character/word-wise from the LLM as it generates the response
-                # Match the SSE implementation exactly (routes.py lines 61-68)
+                # Do not stream from respond nodes: response is streamed only after guardrail (post_validate) above
+                # Skip on_chat_model_stream so we never send unvalidated tokens to the client
                 if event_type == "on_chat_model_stream":
-                    chunk = event.get('data', {}).get('chunk')
-                    if chunk and hasattr(chunk, 'content') and chunk.content:
-                        content = chunk.content[0]
-                        # Match SSE implementation: direct access to 'type' and 'text' (not .get())
-                        if content.get('type') == 'text':
-                            text = content.get('text', '')
-                            # Only send non-empty text chunks (these are streaming tokens from LLM)
-                            # on_chat_model_stream events only contain AI responses, not user messages
+                    continue
+
+                # Fallback: post_validate/append_ai output may arrive via on_chain_stream (state update chunk)
+                if event_type == "on_chain_stream" and node_name in nodes_that_emit_ai_response and not validated_response_sent:
+                    chunk = event.get('data', {}).get('chunk', {})
+                    if isinstance(chunk, dict) and chunk.get('messages'):
+                        msgs = chunk['messages']
+                        if msgs and (isinstance(msgs[0], AIMessage) or (hasattr(msgs[0], 'type') and getattr(msgs[0], 'type', None) == 'ai')):
+                            content = getattr(msgs[0], 'content', None)
+                            text = ""
+                            if isinstance(content, list) and len(content) > 0:
+                                text_item = content[0]
+                                if isinstance(text_item, dict) and text_item.get('type') == 'text':
+                                    text = text_item.get('text', '')
+                            elif isinstance(content, str):
+                                text = content or ""
                             if text:
-                                await self.send_json({"type": "token", "content": text})
+                                await self._stream_validated_response_in_chunks(text)
+                                validated_response_sent = True
 
                 # Handle static messages from static response nodes
                 # Match the SSE implementation structure (routes.py lines 70-77)
                 # SSE only handles escalation_respond, but we handle all static nodes
-                # Also handle LLM response nodes if they come through on_chain_stream
-                # (this happens when ainvoke is used instead of streaming)
-                if event_type == "on_chain_stream":
-                    # Handle LLM response nodes - these should ideally stream via on_chat_model_stream
-                    # but if they don't (e.g., when using ainvoke), we capture them here
-                    llm_response_nodes = ("sms_respond", "web_respond")
-                    if node_name in llm_response_nodes:
-                        chunk = event.get('data', {}).get('chunk', {})
-                        if chunk and chunk.get('messages'):
-                            message = chunk['messages'][0]
-                            # Only send AI messages, filter out user messages
-                            if isinstance(message, AIMessage) or (hasattr(message, 'type') and getattr(message, 'type', None) == 'ai'):
-                                # Extract text content from LLM response
-                                if hasattr(message, 'content'):
-                                    content = message.content
-                                    if isinstance(content, list) and len(content) > 0:
-                                        # Handle list format: [{'type': 'text', 'text': '...'}]
-                                        text_item = content[0]
-                                        if isinstance(text_item, dict) and text_item.get('type') == 'text':
-                                            text = text_item.get('text', '')
-                                            if text:
-                                                # Send the full response as a single token
-                                                # This is a fallback when on_chat_model_stream doesn't work
-                                                await self.send_json({"type": "token", "content": text})
-                                    elif isinstance(content, str) and content:
-                                        # Handle direct string content
-                                        await self.send_json({"type": "token", "content": content})
+                # Do NOT stream from respond nodes (sms_respond, web_respond) - validated response is streamed after post_validate
+                if event_type == "on_chain_stream" and not inside_guardrail_subgraph:
+                    # Skip respond nodes: their output is streamed only after guardrail in on_chain_end above
+                    if node_name in respond_node_names:
+                        continue
                     
                     # Handle all static message nodes
                     static_nodes = (
@@ -573,4 +611,13 @@ class ChatConsumer(AsyncWebsocketConsumer):
     async def send_json(self, payload: Dict[str, Any]) -> None:
         """Send JSON message to client."""
         await self.send(text_data=json.dumps(payload, separators=(",", ":"), ensure_ascii=False))
+
+    async def _stream_validated_response_in_chunks(self, text: str) -> None:
+        """Stream validated response text to the client in chunks (token events)."""
+        if not text:
+            return
+        for i in range(0, len(text), VALIDATED_RESPONSE_CHUNK_SIZE):
+            chunk = text[i : i + VALIDATED_RESPONSE_CHUNK_SIZE]
+            if chunk:
+                await self.send_json({"type": "token", "content": chunk})
 

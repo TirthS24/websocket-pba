@@ -21,6 +21,7 @@ __all__ = [
     "ThreadHistoryRequest",
     "TokenEvent",
     "StaticEvent",
+    "ReplaceEvent",
     "EscalationEvent",
     "EndEvent",
     "ErrorEvent",

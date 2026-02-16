@@ -1,17 +1,23 @@
 from ws_server.applib.config import config
-from ws_server.applib.helpers import get_postgres_conn_string
+from ws_server.applib.graph.structured_outputs import GuardrailEvaluation
+from ws_server.applib.helpers import get_postgres_conn_string, message_content_str
+from ws_server.applib.llms import get_bedrock_converse_model
 from ws_server.applib.prompts import prompts
 from ws_server.applib.types import Channel
 from enum import Enum
 from functools import partial
+from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.state import CompiledStateGraph
-from pydantic import BaseModel, Field
+from pydantic import ValidationError
 from typing import Annotated, Optional
 from typing_extensions import TypedDict
-
+import json
+import logging
 import operator
+
+logger = logging.getLogger(__name__)
 
 
 class ValidationRoute(Enum):
@@ -25,6 +31,7 @@ class GuardrailState(TypedDict):
     response_to_check: str
     validated_response: Optional[str]
     is_valid: bool
+    needs_rewrite: bool
     rewrite_attempts: Annotated[int, operator.add]
     max_rewrites: int
     issues: Optional[list[str]]
@@ -34,35 +41,132 @@ def entry_passthrough(state: GuardrailState) -> dict:
     """Passthrough state to serve as target for rewrite loop"""
     return {}
 
-def _evaluate_response(state: GuardrailState, system_message: str, structured_output: BaseModel) -> dict:
-    """response evaluation base function"""
-    pass
 
-evaluate_response_sms = partial(_evaluate_response, system_message="", structured_output="")
-evaluate_response_web = partial(_evaluate_response, system_message="", structured_output="")
+def _extract_first_json_object(text: str) -> Optional[str]:
+    """Find the first { ... } and return it (brace-balanced). Handles nested structures."""
+    start = text.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    for i in range(start, len(text)):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+    return None
 
-def _rewrite_response(state: GuardrailState, system_message: str) -> dict:
-    """response rewrite base function"""
-    # Increment rewrite_attempts counter to prevent infinite loops
-    # The operator.add annotation will add this value to the current state
-    return {"rewrite_attempts": 1}
 
-rewrite_response_sms = partial(_rewrite_response, system_message="")
-rewrite_response_web = partial(_rewrite_response, system_message="")
+def _parse_guardrail_evaluation(raw_text: str) -> Optional[GuardrailEvaluation]:
+    """Parse GuardrailEvaluation from raw LLM text (JSON object, optionally inside markdown)."""
+    if not raw_text:
+        return None
+    text = raw_text.strip()
+    # Try direct parse first
+    try:
+        data = json.loads(text)
+        return GuardrailEvaluation.model_validate(data)
+    except (json.JSONDecodeError, ValidationError):
+        pass
+    # Extract first JSON object (e.g. from markdown code block or surrounding text)
+    json_str = _extract_first_json_object(text)
+    if json_str:
+        try:
+            data = json.loads(json_str)
+            return GuardrailEvaluation.model_validate(data)
+        except (json.JSONDecodeError, ValidationError):
+            pass
+    return None
+
+async def _evaluate_response(state: GuardrailState, channel_suffix: str) -> dict:
+    """Evaluate whether the assistant response is appropriate, needs change, or is acceptable."""
+    channel_prompts = getattr(prompts.guardrails.evaluate_response, channel_suffix)
+    system_content = channel_prompts.system
+    user_template = channel_prompts.user
+    user_content = user_template.format(
+        user_query=state["user_query"],
+        response_to_check=state["response_to_check"],
+    )
+    model_id = config.BEDROCK_MODEL_ID_SMS_RESPOND if channel_suffix == "sms" else config.BEDROCK_MODEL_ID_WEB_RESPOND
+    llm = get_bedrock_converse_model(model_id=model_id)
+    messages = [SystemMessage(content=system_content), HumanMessage(content=user_content)]
+    response = await llm.ainvoke(messages)
+    raw_text = message_content_str(response, list_separator="")
+    result = _parse_guardrail_evaluation(raw_text)
+    if result is None:
+        logger.warning(
+            "Guardrail evaluation returned None (model may have returned invalid structured output); treating as fail."
+        )
+        return {
+            "is_valid": False,
+            "needs_rewrite": True,
+            "issues": ["Evaluation could not be completed."],
+        }
+    needs_rewrite = not result.passes
+    if needs_rewrite:
+        issues = result.issues or []
+        logger.info(
+            "Guardrail: response needs rewrite (%s issue(s)): %s",
+            len(issues),
+            issues[:5] if len(issues) > 5 else issues,
+        )
+    return {
+        "is_valid": result.passes,
+        "needs_rewrite": needs_rewrite,
+        "issues": result.issues or [],
+    }
+
+evaluate_response_sms = partial(_evaluate_response, channel_suffix="sms")
+evaluate_response_web = partial(_evaluate_response, channel_suffix="web")
+
+async def _rewrite_response(state: GuardrailState, channel_suffix: str) -> dict:
+    """Rewrite the response using the LLM; the corrected response is re-evaluated on the next loop."""
+    channel_prompts = getattr(prompts.guardrails.rewrite_response, channel_suffix)
+    system_content = channel_prompts.system
+    issues_str = "\n".join(f"- {i}" for i in (state.get("issues") or []))
+    user_content = channel_prompts.user.format(
+        user_query=state["user_query"],
+        response_to_check=state["response_to_check"],
+        issues=issues_str,
+    )
+    model_id = config.BEDROCK_MODEL_ID_SMS_RESPOND if channel_suffix == "sms" else config.BEDROCK_MODEL_ID_WEB_RESPOND
+    llm = get_bedrock_converse_model(model_id=model_id)
+    messages = [SystemMessage(content=system_content), HumanMessage(content=user_content)]
+    response = await llm.ainvoke(messages)
+    rewritten = message_content_str(response, list_separator="")
+    if rewritten:
+        logger.info(
+            "Guardrail: applied LLM rewrite (%s chars); will re-evaluate.",
+            len(rewritten),
+        )
+    return {
+        "response_to_check": rewritten,
+        "validated_response": rewritten,
+        "rewrite_attempts": 1,
+    }
+
+rewrite_response_sms = partial(_rewrite_response, channel_suffix="sms")
+rewrite_response_web = partial(_rewrite_response, channel_suffix="web")
 
 def finalize_valid(state: GuardrailState) -> dict:
-    pass
+    """Accept the current response as valid and use it as the final output."""
+    return {"validated_response": state["response_to_check"]}
 
 def finalize_fallback(state: GuardrailState) -> dict:
-    pass
-
+    """Max rewrites reached; return the last generated message as-is."""
+    return {"validated_response": state["response_to_check"]}
 
 def post_evaluation_router(state: GuardrailState) -> ValidationRoute:
-    if state.get('is_valid', False):
+    if state.get("is_valid", False):
         return ValidationRoute.FINALIZE_VALID
 
-    attempts = state.get('rewrite_attempts', 0)
-    max_rewrites = state.get('max_rewrites', 3)
+    needs_rewrite = state.get("needs_rewrite", False)
+    if not needs_rewrite:
+        return ValidationRoute.FINALIZE_VALID
+
+    attempts = state.get("rewrite_attempts", 0)
+    max_rewrites = state.get("max_rewrites", 2)
 
     if attempts >= max_rewrites:
         return ValidationRoute.FINALIZE_FALLBACK

@@ -6,11 +6,11 @@ class Channel(Enum):
     SMS = 'sms'
 
 class SmsIntent(Enum):
-    CHAT = 'chat'
+    IN_SCOPE = 'in_scope'
     ESCALATION = 'escalation'
-    UNCLEAR = 'unclear'
+    OUT_OF_SCOPE = 'out_of_scope'
 
 class WebIntent(Enum):
-    CHAT = 'chat'
+    IN_SCOPE = 'in_scope'
     ESCALATION = 'escalation'
-    UNCLEAR = 'unclear'
+    OUT_OF_SCOPE = 'out_of_scope'

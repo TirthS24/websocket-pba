@@ -1,0 +1,7 @@
+User query:
+{user_query}
+
+Assistant response to evaluate:
+{response_to_check}
+
+Evaluate the assistant response against the rules. Output JSON with: passes (boolean), issues (list of strings).
