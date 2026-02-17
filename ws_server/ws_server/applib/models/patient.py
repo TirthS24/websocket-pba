@@ -13,7 +13,7 @@ class PatientDetails(BaseModel):
     middle_name: Optional[str] = None
     gender: str
     phone_number: str
-    email_address: str
+    email_address: str | None = None
     dob: str
 
 # === PatientData ===
