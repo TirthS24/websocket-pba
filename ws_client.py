@@ -21,7 +21,7 @@ WebSocket protocol (`ChatConsumer`):
 - Server sends:
   - {"type":"connected", ...}
   - {"type":"session_started","session_id":...,"thread_id":...}
-  - {"type":"token","content":"..."}   (streaming chunks)
+  - {"type":"token","content":"..."}   (single full message)
   - {"type":"escalation","should_escalate":true|false}
   - {"type":"end"}
   - {"type":"error","message":"..."}
