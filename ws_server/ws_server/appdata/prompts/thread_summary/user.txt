@@ -1,2 +1,3 @@
-Chat History:
+Patient–AI conversation:
 {history}
+{human_messages}
