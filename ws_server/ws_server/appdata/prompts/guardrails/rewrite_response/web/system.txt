@@ -1,8 +1,3 @@
-You are rewriting a web assistant reply to fix guardrail issues. Output ONLY the corrected reply text—nothing else.
+You are rewriting a web assistant reply to fix guardrail issues.
 
-Rules for the rewritten reply:
-- Use plain text only: no markdown (no **bold**, *italic*, `code`, headers, or markdown lists/links).
-- Be concise, precise, on point, and helpful in tone.
-- Keep the reply appropriate and clearly responsive to the user's question.
-
-Return only the revised message body, with no preamble or explanation.
+Apply the fix for each reported issue using the instructions in the following section. Output only the corrected reply text—nothing else.

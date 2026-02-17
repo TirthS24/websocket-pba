@@ -10,14 +10,24 @@ class WebIntentClassification(BaseModel):
 
 class GuardrailEvaluation(BaseModel):
     """
-    Minimal structured output for guardrail: single pass/fail decision and issues.
-    Decision is made by the model using the graph rules; no separate params (helpful, concise, etc.).
+    Structured output for guardrail evaluation. Only metrics; no passes or issues.
+    If any metric is false, the response is rewritten (issues for rewrite are derived from metrics in code).
     """
-    passes: bool = Field(
-        description="True if the response is acceptable; false if it needs to be rewritten."
+    is_english: bool = Field(
+        description="True if the response's primary language is English and grammatically correct."
     )
-    issues: list[str] = Field(
-        default_factory=list,
-        description="List of specific issues found when passes is false."
+    no_markdown: bool = Field(
+        description="True if the response uses plain text only (no markdown formatting)."
     )
-
+    is_concise: bool = Field(
+        description="True if the response is concise and appropriately short for the channel."
+    )
+    no_pii: bool = Field(
+        description="True if the response contains no PII (no full names, SSN, DOB, full account numbers, specific addresses)."
+    )
+    no_payment_promises: bool = Field(
+        description="True if the response makes no promises about payment plans, due dates, or amounts."
+    )
+    is_appropriate: bool = Field(
+        description="True if the response is appropriate, safe, on-topic, and answers the user's question with a helpful tone."
+    )
