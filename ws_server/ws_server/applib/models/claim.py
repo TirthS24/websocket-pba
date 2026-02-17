@@ -85,17 +85,17 @@ class Claim835Data(BaseModel):
 # === ClaimDBData ===
 # Represents claim-level data enriched or tracked internally in the database.
 class Claim(BaseModel):
-    external_id: str
-    date_of_service: str
-    total_due: float
-    total_fee: float
-    total_paid: float
-    total_manual_paid: float
-    total_network_discount: float
-    total_insurance: float
-    total_resolved_amount: float
+    external_id: str | None = None
+    date_of_service: str | None = None
+    total_due: float | None = None
+    total_fee: float | None = None
+    total_paid: float | None = None
+    total_manual_paid: float | None = None
+    total_network_discount: float | None = None
+    total_insurance: float | None = None
+    total_resolved_amount: float | None = None
     resolved_at: str | None = None
-    provider_name: str
+    provider_name: str | None = None
     is_resolved_as_not_present: Optional[str | bool] = None
     edi_mappings: Optional[List[Claim835Data]] = None
     adjustments: Optional[List[Adjustment]] = None
