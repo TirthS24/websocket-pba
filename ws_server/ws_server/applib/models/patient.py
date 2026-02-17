@@ -8,13 +8,13 @@ from .payment import Payment
 
 class PatientDetails(BaseModel):
     external_id: str
-    first_name: str
-    last_name: str
+    first_name: Optional[str | None] = None
+    last_name: Optional[str | None] = None
     middle_name: Optional[str] = None
-    gender: str
-    phone_number: str
-    email_address: str | None = None
-    dob: str
+    gender: Optional[str | None] = None
+    phone_number: Optional[str | None] = None
+    email_address: Optional[str | None] = None
+    dob: Optional[str | None] = None
 
 # === PatientData ===
 # Represents additional patient details stored in the internal database.
