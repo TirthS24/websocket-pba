@@ -1,3 +1,4 @@
+from datetime import datetime
 from ws_server.applib.models.practice import PracticeDetails
 from ws_server.applib.models.patient import PatientDetails
 from ws_server.applib.models.claim import Claim
@@ -31,8 +32,18 @@ class SmsChatRequest(BaseModel):
 class ThreadRequest(BaseModel):
     thread_id: str
 
+
+class ThreadConversationMessage(BaseModel):
+    """One message in a patient-operator conversation (human-human), sent after the patient-AI thread."""
+    type: Literal["patient", "operator"]
+    content: str
+    read_at: datetime
+    sent_at: datetime
+
+
 class SummarizeRequest(ThreadRequest):
-    pass
+    """Request for thread summarize. Optional messages = patient-operator conversation after the patient-AI chat."""
+    messages: Optional[list[ThreadConversationMessage]] = None
 
 class ThreadHistoryRequest(ThreadRequest):
     pass

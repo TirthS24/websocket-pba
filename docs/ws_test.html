@@ -410,7 +410,7 @@
           <!-- <input id="wsBaseUrl" value="ws://WebSoc-ALBAE-XmkemFU9P4kp-321802927.us-east-2.elb.amazonaws.com" placeholder="ws://WebSoc-ALBAE-XmkemFU9P4kp-321802927.us-east-2.elb.amazonaws.com" /> -->
           <input id="wsBaseUrl" value="ws://localhost:8000" />
           <label for="apiKey" style="margin-top: 12px;">API Key</label>
-          <input id="apiKey" type="password" value="{YOUR_API_KEY}"
+          <input id="apiKey" type="password" value="abcdefg123456uadslvaosdiufdspofu9sp"
             placeholder="Must match server AUTH_API_KEY" autocomplete="off" />
           <p style="font-size: 11px; color: #6b7280; margin-top: 4px;">Required. Auth is API key only (no CSRF or
             cookies). Must match server AUTH_API_KEY.</p>
@@ -429,6 +429,31 @@
           <div style="display: flex; gap: 8px;">
             <input id="threadId" placeholder="Generated when connecting" readonly style="flex: 1;" />
             <button class="button-secondary" id="clearThread">New thread</button>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h3 class="collapsible" id="summarizeCollapsible">Summarize (dynamic request)</h3>
+          <div class="collapsible-content" id="summarizeContent">
+            <label for="summarizePayload">Request body (JSON)</label>
+            <textarea id="summarizePayload" rows="14" style="font-family: monospace; font-size: 12px; margin-top: 6px; width: 100%;">{
+  "thread_id": "",
+  "messages": [
+    {
+      "type": "patient",
+      "content": "What is my outstanding amount?",
+      "read_at": "2024-02-01T05:44:21.908Z",
+      "sent_at": "2024-02-01T05:44:10.949Z"
+    },
+    {
+      "type": "operator",
+      "content": "Your amount to pay is $50.",
+      "read_at": "2024-02-01T05:46:21.908Z",
+      "sent_at": "2024-02-01T05:45:10.949Z"
+    }
+  ]
+}</textarea>
+            <p style="font-size: 11px; color: #6b7280; margin-top: 6px;">Optional <code>messages</code> = patient–operator conversation after the AI chat. Omit or set to <code>[]</code> for AI chat only. Leave <code>thread_id</code> empty to use current thread when connected.</p>
           </div>
         </div>
 
@@ -607,16 +632,32 @@
     }
 
     async function getSummary() {
-      if (!threadId) {
-        addMessage("Error: No thread ID available. Send a message first.", "system");
+      let payload = null;
+      const rawInput = ($("summarizePayload") && $("summarizePayload").value) ? $("summarizePayload").value.trim() : "";
+      if (rawInput) {
+        try {
+          payload = JSON.parse(rawInput);
+        } catch (e) {
+          addMessage("Summarize request: invalid JSON. " + (e.message || ""), "system");
+          return;
+        }
+      }
+      if (!payload || typeof payload !== "object") {
+        payload = {};
+      }
+      if (!payload.thread_id && threadId) {
+        payload.thread_id = threadId;
+      }
+      if (!payload.thread_id) {
+        addMessage("Error: No thread ID. Set thread_id in the Summarize request body or connect to chat first.", "system");
         return;
       }
 
       $("getSummaryButton").disabled = true;
       addMessage("Fetching thread summary...", "system");
-      log(`[client] Fetching summary for thread_id=${threadId}`);
+      log(`[client] POST /api/thread/summarize thread_id=${payload.thread_id}` + (payload.messages && payload.messages.length ? ` messages=${payload.messages.length}` : ""));
 
-      const data = await postJson("/api/thread/summarize", { thread_id: threadId });
+      const data = await postJson("/api/thread/summarize", payload);
 
       $("getSummaryButton").disabled = false;
 
@@ -877,6 +918,11 @@
     $("getHistoryButton").addEventListener("click", getHistory);
 
     // Collapsible sections
+    $("summarizeCollapsible").addEventListener("click", function () {
+      this.classList.toggle("collapsed");
+      $("summarizeContent").classList.toggle("collapsed");
+    });
+
     $("dataCollapsible").addEventListener("click", function () {
       this.classList.toggle("collapsed");
       $("dataContent").classList.toggle("collapsed");

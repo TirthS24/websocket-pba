@@ -17,7 +17,7 @@ from ws_server.applib.prompts import prompts
 from ws_server.applib.config import config
 from langchain_core.messages import AnyMessage, SystemMessage, HumanMessage, AIMessage
 from ws_server.realtime.serializers import SummarizeRequest, ThreadHistoryRequest
-from ws_server.applib.models.api import SmsChatRequest
+from ws_server.applib.models.api import SmsChatRequest, ThreadConversationMessage
 from ws_server.applib.types import Channel
 
 
@@ -181,7 +181,7 @@ async def get_thread_history_with_metadata(thread_id: str) -> list[dict]:
             timestamp = datetime.now(timezone.utc).isoformat() + 'Z'
         
         result.append({
-            'type': 'user' if isinstance(message, HumanMessage) else 'ai',
+            'type': 'patient' if isinstance(message, HumanMessage) else 'ai',
             'content': content,
             'id': checkpoint_id,
             'sent_at': timestamp,
@@ -194,17 +194,48 @@ async def get_thread_history_with_metadata(thread_id: str) -> list[dict]:
     return result
 
 
-async def summarize_thread(thread_id: str) -> str:
-    """Summarize thread history."""
+def _message_history_to_template_list(messages: list[AnyMessage]) -> list[dict]:
+    """Convert LangChain message list to list of dicts with type 'human'|'ai' and content for thread template."""
+    result = []
+    for message in messages:
+        if not isinstance(message, (HumanMessage, AIMessage)):
+            continue
+        content = extract_message_content(message)
+        if not content or not content.strip():
+            continue
+        result.append({
+            "type": "human" if isinstance(message, HumanMessage) else "ai",
+            "content": content,
+        })
+    return result
+
+
+async def summarize_thread(
+    thread_id: str,
+    human_messages: Optional[list[ThreadConversationMessage]] = None,
+) -> str:
+    """Summarize thread history (patient–AI), optionally including patient–operator messages after."""
     llm = get_bedrock_converse_model(model_id=config.BEDROCK_MODEL_ID_THREAD_SUMMARIZE)
     jinja_env = JinjaEnvironments.thread
-    template = jinja_env.get_template("chat_history.jinja")
+    pre_escalation_template = jinja_env.get_template("pre_escalation/chat_history.jinja")
     message_history = await get_message_history(thread_id)
-    rendered_history = template.render(history=message_history)
+    history_list = _message_history_to_template_list(message_history)
+    rendered_history = pre_escalation_template.render(history=history_list)
+
+    if human_messages:
+        post_escalation_template = jinja_env.get_template("post_escalation/chat_history.jinja")
+        human_messages_block = "\n" + post_escalation_template.render(messages=human_messages)
+    else:
+        human_messages_block = ""
 
     messages = [
         SystemMessage(prompts.thread_summary.system),
-        HumanMessage(prompts.thread_summary.user.format(history=rendered_history))
+        HumanMessage(
+            prompts.thread_summary.user.format(
+                history=rendered_history,
+                human_messages=human_messages_block,
+            )
+        ),
     ]
 
     response = await llm.ainvoke(messages)
@@ -218,8 +249,11 @@ async def summarize_thread_view(request):
     try:
         body = json.loads(request.body)
         request_data = SummarizeRequest(**body)
-        
-        summary = await summarize_thread(request_data.thread_id)
+
+        summary = await summarize_thread(
+            request_data.thread_id,
+            human_messages=request_data.messages,
+        )
         
         return JsonResponse({
             "thread_id": request_data.thread_id,

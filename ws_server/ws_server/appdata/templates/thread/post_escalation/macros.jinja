@@ -1,0 +1,11 @@
+{% macro render_patient_operator_conversation(messages) %}
+{% for message in messages %}
+{% if message.type == 'patient' %}
+<<Patient>>: {{ message.content }}
+{{ '=' * 80 }}
+{% elif message.type == 'operator' %}
+<<Operator>>: {{ message.content }}
+{{ '=' * 80 }}
+{% endif %}
+{% endfor %}
+{% endmacro %}
