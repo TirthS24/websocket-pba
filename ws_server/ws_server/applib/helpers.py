@@ -77,7 +77,7 @@ def format_invoice_for_context(invoice: Invoice) -> str:
     lines = [
         "Practice:",
         f"  name={invoice.practice.name}, external_id={invoice.practice.external_id}",
-        f"  email={invoice.practice.email_address}, phone={invoice.practice.phone_number}, hours={invoice.practice.hours}",
+        f"  email={invoice.practice.email_address}, phone={invoice.practice.phone_number}, working_hours_start={invoice.practice.work_start_time}, working_hours_end={invoice.practice.work_end_time}",
         "",
         "Patient:",
         f"  name={invoice.patient.first_name} {invoice.patient.last_name}, external_id={invoice.patient.external_id}",
@@ -94,7 +94,7 @@ def format_invoice_for_context(invoice: Invoice) -> str:
         )
     lines.extend([
         "",
-        f"Stripe payment link (give if they want to pay): {invoice.stripe_link}",
+        f"Stripe payment link (give if they want to pay): {invoice.stripe_payment_link}",
         f"Web app verification link: {invoice.web_app_link}",
     ])
     return "\n".join(lines)

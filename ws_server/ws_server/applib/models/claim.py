@@ -24,11 +24,11 @@ class RenderingProvider(BaseModel):
 # Represents a single adjustment entry on a service line.
 class Adjustment(BaseModel):
     id: int
-    identifier: str
+    identifier: Optional[str] = None
     group_code: str
-    group_code_description: str
+    group_code_description: Optional[str] = None
     reason_code: str
-    reason_code_description: str
+    reason_code_description: Optional[str] = None
     amount: float
     guidance: Optional[CodeGuidance] = None
 
@@ -44,11 +44,12 @@ class Service(BaseModel):
     service_charge_amount: float
     service_paid_amount: float
     service_balance: float
-    qualifier: str
-    modifier: Optional[str] = None
-    service_code: str
-    service_allowed_units: int
-    service_billed_units: int
+    qualifier: Optional[str] = None
+    procedure_modifier: Optional[str] = None
+    procedure_code: Optional[str] = None
+    service_code: Optional[str] = None
+    service_allowed_units: Optional[int] = None
+    service_billed_units: Optional[int] = None
     adjustments: List[Adjustment]
 
     @property
@@ -93,10 +94,10 @@ class Claim(BaseModel):
     total_network_discount: float
     total_insurance: float
     total_resolved_amount: float
-    resolved_at: str
+    resolved_at: str | None = None
     provider_name: str
     is_resolved_as_not_present: Optional[str | bool] = None
-    edi_mappings: List[Claim835Data]
+    edi_mappings: Optional[List[Claim835Data]] = None
     adjustments: Optional[List[Adjustment]] = None
 
 

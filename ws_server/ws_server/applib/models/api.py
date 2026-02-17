@@ -13,7 +13,7 @@ class Invoice(BaseModel):
     patient: PatientDetails
     practice: PracticeDetails
     claims: list[Claim]
-    stripe_link: str  # The stripe payment link that should be given to the user if they indicate a wish to pay the currently viewed invoice
+    stripe_payment_link: str  # The stripe payment link that should be given to the user if they indicate a wish to pay the currently viewed invoice
     web_app_link: str  # The link to the webapp DOB screen
 
 class ChatRequest(BaseModel):
