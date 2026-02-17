@@ -28,9 +28,6 @@ from langchain_core.messages import AIMessage
 
 logger = logging.getLogger(__name__)
 
-# Chunk size for streaming validated response to the frontend (chars per token event)
-VALIDATED_RESPONSE_CHUNK_SIZE = 12
-
 
 class SessionConsumer(AsyncWebsocketConsumer):
     """
@@ -455,7 +452,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
             # When True, we are inside the guardrail subgraph (post_validate); do not stream its internal LLM output
             inside_guardrail_subgraph = False
             guardrail_node_names = ("sms_post_validate", "web_post_validate")
-            # When guardrail is skipped, AI response is appended by these nodes; stream their output in chunks too
+            # When guardrail is skipped, AI response is appended by these nodes; send their output as a single token message
             append_ai_no_guardrail_nodes = ("sms_append_ai_no_guardrail", "web_append_ai_no_guardrail")
             nodes_that_emit_ai_response = guardrail_node_names + append_ai_no_guardrail_nodes
             # Respond nodes are non-streaming; we only stream the validated response after post_validate
@@ -475,7 +472,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
                     inside_guardrail_subgraph = True
                 if event_type == "on_chain_end" and node_name in guardrail_node_names:
                     inside_guardrail_subgraph = False
-                # Stream the main AI response in chunks (from post_validate or append_ai_no_guardrail)
+                # Send the main AI response as a single token message (from post_validate or append_ai_no_guardrail)
                 if event_type == "on_chain_end" and node_name in nodes_that_emit_ai_response and not validated_response_sent:
                     data = event.get('data') or {}
                     output = data.get('output') or data
@@ -491,9 +488,9 @@ class ChatConsumer(AsyncWebsocketConsumer):
                             elif isinstance(content, str):
                                 text = content or ""
                             if text:
-                                await self._stream_validated_response_in_chunks(text)
+                                await self._send_validated_response(text)
                                 validated_response_sent = True
-                # When respond node fails it returns out_of_scope fallback in messages; stream that in chunks
+                # When respond node fails it returns out_of_scope fallback in messages; send that as a single token message
                 if event_type == "on_chain_end" and node_name in respond_node_names and not validated_response_sent:
                     data = event.get('data') or {}
                     output = data.get('output') or data
@@ -509,7 +506,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
                             elif isinstance(content, str):
                                 text = content or ""
                             if text:
-                                await self._stream_validated_response_in_chunks(text)
+                                await self._send_validated_response(text)
                                 validated_response_sent = True
 
                 # Handle escalation detection: from detect_escalation node output
@@ -544,7 +541,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
                             elif isinstance(content, str):
                                 text = content or ""
                             if text:
-                                await self._stream_validated_response_in_chunks(text)
+                                await self._send_validated_response(text)
                                 validated_response_sent = True
 
                 # Handle static messages from static response nodes
@@ -612,12 +609,9 @@ class ChatConsumer(AsyncWebsocketConsumer):
         """Send JSON message to client."""
         await self.send(text_data=json.dumps(payload, separators=(",", ":"), ensure_ascii=False))
 
-    async def _stream_validated_response_in_chunks(self, text: str) -> None:
-        """Stream validated response text to the client in chunks (token events)."""
+    async def _send_validated_response(self, text: str) -> None:
+        """Send validated response text to the client as a single token message."""
         if not text:
             return
-        for i in range(0, len(text), VALIDATED_RESPONSE_CHUNK_SIZE):
-            chunk = text[i : i + VALIDATED_RESPONSE_CHUNK_SIZE]
-            if chunk:
-                await self.send_json({"type": "token", "content": chunk})
+        await self.send_json({"type": "token", "content": text})
 
