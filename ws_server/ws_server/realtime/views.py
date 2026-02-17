@@ -285,6 +285,8 @@ async def sms_chat_view(request):
         "data": None,
         "context": None,
     }
+    if getattr(req, "invoice", None) is not None:
+        input_state["invoice"] = req.invoice
     graph_config = {"configurable": {"thread_id": thread_id}}
 
     try:

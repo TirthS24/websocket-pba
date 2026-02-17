@@ -1,9 +1,43 @@
 from pathlib import Path
 import json
+from typing import Any
 
 from langchain_core.messages import HumanMessage
 
-from ws_server.applib.models.api import ChatRequest
+from ws_server.applib.models.api import ChatRequest, Invoice
+
+
+def text_from_content_block(block: Any) -> str:
+    """Extract plain text from a single content block (dict or str).
+    Handles {"type": "text", "text": "..."}, other dict shapes, and raw strings."""
+    if isinstance(block, str):
+        return block
+    if isinstance(block, dict):
+        if "text" in block:
+            return block.get("text") or ""
+        for key in ("content", "input", "value"):
+            if key in block and isinstance(block[key], str):
+                return block[key]
+    return ""
+
+
+def message_content_str(message: Any, list_separator: str = " ") -> str:
+    """Extract plain text from a LangChain message or content (for guardrail/LLM responses).
+    Handles None, object with .content, string, list of blocks, and dict with 'text'.
+    list_separator is used when joining multiple blocks (use '' for guardrail concatenation)."""
+    if message is None:
+        return ""
+    content = getattr(message, "content", message)
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts = [text_from_content_block(b) for b in content if text_from_content_block(b)]
+        return list_separator.join(parts).strip() if parts else ""
+    if isinstance(content, dict) and "text" in content:
+        return (content.get("text") or "").strip()
+    return ""
 
 
 def load_json(path: str | Path) -> dict:
@@ -21,17 +55,46 @@ def get_postgres_conn_string(user: str, password: str, database_name: str, host:
 def create_state_from_chat_request(request: ChatRequest) -> dict:
     """Build initial graph state from a ChatRequest.
 
-    Only request fields (message, thread_id, channel, invoice) are taken from the
-    request. State-only fields (task, data, context) are not part of the API and
-    are set to None here; the graph sets task from intent and builds context from
-    data in add_data_context. To pass task/data/context from the client, add them
-    as optional fields on ChatRequest and include them below.
+    Message is stored as-is (no invoice in user message) so history/summary stay clean.
+    When invoice is present it is stored in state and injected into the system prompt
+    at respond time only; it is never returned in chat history or included in summaries.
     """
-    return {
-        'thread_id': request.thread_id,
-        'messages': [HumanMessage(content=request.message)],
-        'channel': request.channel,
-        'task': None,
-        'data': None,
-        'context': None,
+    state = {
+        "thread_id": request.thread_id,
+        "messages": [HumanMessage(content=request.message)],
+        "channel": request.channel,
+        "task": None,
+        "data": None,
+        "context": None,
     }
+    if getattr(request, "invoice", None) is not None:
+        state["invoice"] = request.invoice
+    return state
+
+
+def format_invoice_for_context(invoice: Invoice) -> str:
+    """Format invoice as readable text for LLM context (e.g. in system prompt)."""
+    lines = [
+        "Practice:",
+        f"  name={invoice.practice.name}, external_id={invoice.practice.external_id}",
+        f"  email={invoice.practice.email_address}, phone={invoice.practice.phone_number}, hours={invoice.practice.hours}",
+        "",
+        "Patient:",
+        f"  name={invoice.patient.first_name} {invoice.patient.last_name}, external_id={invoice.patient.external_id}",
+        f"  dob={invoice.patient.dob}, gender={invoice.patient.gender}",
+        f"  email={invoice.patient.email_address}, phone={invoice.patient.phone_number}",
+        "",
+        "Claims (use for billing questions):",
+    ]
+    for i, c in enumerate(invoice.claims, 1):
+        lines.append(
+            f"  Claim {i}: external_id={c.external_id}, date_of_service={c.date_of_service}, "
+            f"total_due={c.total_due}, total_fee={c.total_fee}, total_paid={c.total_paid}, "
+            f"total_insurance={c.total_insurance}, provider_name={c.provider_name}"
+        )
+    lines.extend([
+        "",
+        f"Stripe payment link (give if they want to pay): {invoice.stripe_link}",
+        f"Web app verification link: {invoice.web_app_link}",
+    ])
+    return "\n".join(lines)

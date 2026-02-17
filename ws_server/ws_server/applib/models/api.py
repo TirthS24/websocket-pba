@@ -58,6 +58,12 @@ class StaticEvent(BaseModel):
     content: str
 
 
+class ReplaceEvent(BaseModel):
+    """Replace the last streamed assistant message with this content (e.g. after guardrail rewrite)."""
+    event: Literal['replace'] = 'replace'
+    content: str
+
+
 class EndEvent(BaseModel):
     event: Literal['end'] = 'end'
 
