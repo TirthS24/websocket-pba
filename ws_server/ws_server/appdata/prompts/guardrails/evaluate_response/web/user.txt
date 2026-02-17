@@ -4,4 +4,4 @@ User query:
 Assistant response to evaluate:
 {response_to_check}
 
-Evaluate the assistant response against the rules. Output JSON with: passes (boolean), issues (list of strings).
+Evaluate the assistant response against the metrics. Use the structured output with only the metrics: is_english, no_markdown, is_concise, no_pii, no_payment_promises, is_appropriate.

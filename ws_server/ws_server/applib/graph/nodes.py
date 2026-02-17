@@ -131,8 +131,6 @@ async def post_validate(state: State) -> dict:
             thread_id=state['thread_id'],
             user_query=user_query,
             response_to_check=response_to_check,
-            is_valid=False,
-            needs_rewrite=False,
             rewrite_attempts=0,
             max_rewrites=config.MAXIMUM_GUARDRAIL_REWRITES,
             channel=channel,

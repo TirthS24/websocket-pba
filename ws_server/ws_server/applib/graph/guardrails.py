@@ -10,15 +10,12 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.state import CompiledStateGraph
-from pydantic import ValidationError
 from typing import Annotated, Optional
 from typing_extensions import TypedDict
-import json
 import logging
 import operator
 
 logger = logging.getLogger(__name__)
-
 
 class ValidationRoute(Enum):
     REWRITE = 'rewrite_response'
@@ -30,92 +27,94 @@ class GuardrailState(TypedDict):
     user_query: str
     response_to_check: str
     validated_response: Optional[str]
-    is_valid: bool
-    needs_rewrite: bool
     rewrite_attempts: Annotated[int, operator.add]
     max_rewrites: int
-    issues: Optional[list[str]]
     channel: Channel
+    # Metrics from structured output (evaluate node sets these)
+    is_english: Optional[bool]
+    no_markdown: Optional[bool]
+    is_concise: Optional[bool]
+    no_pii: Optional[bool]
+    no_payment_promises: Optional[bool]
+    is_appropriate: Optional[bool]
 
 def entry_passthrough(state: GuardrailState) -> dict:
     """Passthrough state to serve as target for rewrite loop"""
     return {}
 
 
-def _extract_first_json_object(text: str) -> Optional[str]:
-    """Find the first { ... } and return it (brace-balanced). Handles nested structures."""
-    start = text.find("{")
-    if start == -1:
-        return None
-    depth = 0
-    for i in range(start, len(text)):
-        if text[i] == "{":
-            depth += 1
-        elif text[i] == "}":
-            depth -= 1
-            if depth == 0:
-                return text[start : i + 1]
-    return None
+_METRIC_LABELS: list[tuple[str, str]] = [
+    ("is_english", "Not in English"),
+    ("no_markdown", "Uses markdown"),
+    ("is_concise", "Not concise"),
+    ("no_pii", "Contains PII"),
+    ("no_payment_promises", "Makes payment plan promise"),
+    ("is_appropriate", "Not appropriate"),
+]
 
 
-def _parse_guardrail_evaluation(raw_text: str) -> Optional[GuardrailEvaluation]:
-    """Parse GuardrailEvaluation from raw LLM text (JSON object, optionally inside markdown)."""
-    if not raw_text:
-        return None
-    text = raw_text.strip()
-    # Try direct parse first
-    try:
-        data = json.loads(text)
-        return GuardrailEvaluation.model_validate(data)
-    except (json.JSONDecodeError, ValidationError):
-        pass
-    # Extract first JSON object (e.g. from markdown code block or surrounding text)
-    json_str = _extract_first_json_object(text)
-    if json_str:
-        try:
-            data = json.loads(json_str)
-            return GuardrailEvaluation.model_validate(data)
-        except (json.JSONDecodeError, ValidationError):
-            pass
-    return None
+def _issues_from_state(state: GuardrailState) -> list[str]:
+    """Build issues list from failed metrics in state (for rewrite step)."""
+    return [
+        label
+        for key, label in _METRIC_LABELS
+        if state.get(key) is False
+    ]
+
+
+def _all_metrics_passed_from_state(state: GuardrailState) -> bool:
+    """True only when every metric in state is true."""
+    return all(state.get(key, True) for key, _ in _METRIC_LABELS)
+
 
 async def _evaluate_response(state: GuardrailState, channel_suffix: str) -> dict:
     """Evaluate whether the assistant response is appropriate, needs change, or is acceptable."""
+
     channel_prompts = getattr(prompts.guardrails.evaluate_response, channel_suffix)
     system_content = channel_prompts.system
+    structured_output_node = getattr(channel_prompts, "structured_output", None)
+    if structured_output_node is not None and hasattr(structured_output_node, "system"):
+        system_content = system_content + "\n\n" + structured_output_node.system
     user_template = channel_prompts.user
     user_content = user_template.format(
         user_query=state["user_query"],
         response_to_check=state["response_to_check"],
     )
-    model_id = config.BEDROCK_MODEL_ID_SMS_RESPOND if channel_suffix == "sms" else config.BEDROCK_MODEL_ID_WEB_RESPOND
-    llm = get_bedrock_converse_model(model_id=model_id)
+
+    model_id = (
+        config.BEDROCK_MODEL_ID_SMS_RESPOND
+        if channel_suffix == "sms"
+        else config.BEDROCK_MODEL_ID_WEB_RESPOND
+    )
+
+    llm = (
+        get_bedrock_converse_model(model_id=model_id)
+        .with_structured_output(GuardrailEvaluation)
+    )
+
     messages = [SystemMessage(content=system_content), HumanMessage(content=user_content)]
-    response = await llm.ainvoke(messages)
-    raw_text = message_content_str(response, list_separator="")
-    result = _parse_guardrail_evaluation(raw_text)
-    if result is None:
-        logger.warning(
-            "Guardrail evaluation returned None (model may have returned invalid structured output); treating as fail."
-        )
-        return {
-            "is_valid": False,
-            "needs_rewrite": True,
-            "issues": ["Evaluation could not be completed."],
-        }
-    needs_rewrite = not result.passes
-    if needs_rewrite:
-        issues = result.issues or []
+
+    result: GuardrailEvaluation = await llm.ainvoke(messages)
+
+
+    result_flags: GuardrailState = {k: getattr(result, k) for k, _ in _METRIC_LABELS}
+    if not _all_metrics_passed_from_state(result_flags):
+        failed = _issues_from_state(result_flags)
         logger.info(
-            "Guardrail: response needs rewrite (%s issue(s)): %s",
-            len(issues),
-            issues[:5] if len(issues) > 5 else issues,
+            "Guardrail: response needs rewrite (%s metric(s) failed): %s",
+            len(failed),
+            failed[:5] if len(failed) > 5 else failed,
         )
+
     return {
-        "is_valid": result.passes,
-        "needs_rewrite": needs_rewrite,
-        "issues": result.issues or [],
+        "is_english": result.is_english,
+        "no_markdown": result.no_markdown,
+        "is_concise": result.is_concise,
+        "no_pii": result.no_pii,
+        "no_payment_promises": result.no_payment_promises,
+        "is_appropriate": result.is_appropriate,
     }
+
 
 evaluate_response_sms = partial(_evaluate_response, channel_suffix="sms")
 evaluate_response_web = partial(_evaluate_response, channel_suffix="web")
@@ -124,7 +123,10 @@ async def _rewrite_response(state: GuardrailState, channel_suffix: str) -> dict:
     """Rewrite the response using the LLM; the corrected response is re-evaluated on the next loop."""
     channel_prompts = getattr(prompts.guardrails.rewrite_response, channel_suffix)
     system_content = channel_prompts.system
-    issues_str = "\n".join(f"- {i}" for i in (state.get("issues") or []))
+    structured_output_node = getattr(channel_prompts, "structured_output", None)
+    if structured_output_node is not None and hasattr(structured_output_node, "system"):
+        system_content = system_content + "\n\n" + structured_output_node.system
+    issues_str = "\n".join(f"- {i}" for i in _issues_from_state(state))
     user_content = channel_prompts.user.format(
         user_query=state["user_query"],
         response_to_check=state["response_to_check"],
@@ -158,16 +160,11 @@ def finalize_fallback(state: GuardrailState) -> dict:
     return {"validated_response": state["response_to_check"]}
 
 def post_evaluation_router(state: GuardrailState) -> ValidationRoute:
-    if state.get("is_valid", False):
-        return ValidationRoute.FINALIZE_VALID
-
-    needs_rewrite = state.get("needs_rewrite", False)
-    if not needs_rewrite:
+    if _all_metrics_passed_from_state(state):
         return ValidationRoute.FINALIZE_VALID
 
     attempts = state.get("rewrite_attempts", 0)
     max_rewrites = state.get("max_rewrites", 2)
-
     if attempts >= max_rewrites:
         return ValidationRoute.FINALIZE_FALLBACK
 
