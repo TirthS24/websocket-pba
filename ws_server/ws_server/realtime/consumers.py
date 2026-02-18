@@ -583,6 +583,11 @@ class ChatConsumer(AsyncWebsocketConsumer):
             # Send end event
             await self.send_json({"type": "end"})
 
+            # When escalation was detected, end the conversation by closing the WebSocket
+            # gracefully so the FE receives all messages and a normal close (can show UI and reconnect).
+            if escalation_detected:
+                await self.close(code=1000, reason="escalation")
+
         except asyncio.CancelledError:
             # Session was cancelled, send escalation message (default to false) and end event
             await self.send_json({"type": "escalation", "content": None})
