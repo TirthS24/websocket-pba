@@ -94,6 +94,7 @@ The server will respond with:
 - `{"type": "token", "content": "..."}` - Streaming tokens
 - `{"type": "escalation", "should_escalate": true}` - If escalation detected
 - `{"type": "end"}` - When streaming completes
+- When escalation is detected, the server sends the escalation message and `{"type": "end"}`, then closes the WebSocket gracefully (code `1000`, reason `"escalation"`) so the conversation ends; the client can handle the close and e.g. show "conversation ended" or reconnect.
 
 ### Test Session WebSocket
 

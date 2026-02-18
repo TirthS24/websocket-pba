@@ -96,6 +96,7 @@ async def _evaluate_response(state: GuardrailState, channel_suffix: str) -> dict
 
     result: GuardrailEvaluation = await llm.ainvoke(messages)
 
+    logger.info(f"Guardrail evaluation result: {result}")
 
     result_flags: GuardrailState = {k: getattr(result, k) for k, _ in _METRIC_LABELS}
     if not _all_metrics_passed_from_state(result_flags):
