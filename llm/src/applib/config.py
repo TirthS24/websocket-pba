@@ -1,0 +1,30 @@
+from pathlib import Path
+from pydantic_settings import BaseSettings
+
+class Settings(BaseSettings):
+    PSQL_BOT_USERNAME: str
+    PSQL_BOT_PASSWORD: str
+    PSQL_FE_USERNAME: str
+    PSQL_FE_PASSWORD: str
+    PSQL_HOST: str
+    PSQL_PORT: str
+    PSQL_STATE_DATABASE: str
+    PSQL_DATA_DATABASE: str
+    PSQL_SSLMODE: str
+    AWS_BEDROCK_REGION: str
+    BEDROCK_MODEL_ID_BILLING_AGENT: str
+    BEDROCK_MODEL_ID_CLAIM_AGENT: str
+    BEDROCK_MODEL_ID_ESCALATION_DETECTION: str
+    BEDROCK_MODEL_ID_INTENT_DETECTION: str
+    BEDROCK_MODEL_ID_SMS_ROUTER: str
+    BEDROCK_MODEL_ID_THREAD_SUMMARIZE: str
+    BEDROCK_MODEL_ID_SMS_RESPOND: str
+    BEDROCK_MODEL_ID_WEB_RESPOND: str
+    APPDATA_FOLDER_PATH: Path
+    AUTH_API_KEY: str
+    WS_SERVER_URL: str
+    WS_SERVER_ORIGIN: str
+    MAXIMUM_GUARDRAIL_REWRITES: int
+
+
+config = Settings()

@@ -9,7 +9,7 @@ WHY:
 Design:
 - One Redis SET per session_id: holds active connection_ids
   key: ws:presence:session:<session_id>
-- One Redis HASH per connection_id: holds metadata (`from`, `client_type`, timestamps)
+- One Redis HASH per connection_id: holds metadata (user_type, timestamps)
   key: ws:presence:conn:<connection_id>
 
 Each connection hash has a TTL. A lightweight server-side refresh keeps the TTL alive
@@ -62,7 +62,6 @@ class PresenceMember:
     connection_id: str
     session_id: str
     user_type: str
-    client_type: str
     connected_at: int
     last_seen: int
 
@@ -72,13 +71,12 @@ async def upsert_connection(
     session_id: str,
     connection_id: str,
     user_type: str,
-    client_type: str,
     ttl_seconds: int,
 ) -> None:
     """
     Register or update a connection's presence record.
 
-    This is safe to call multiple times (e.g., after receiving a message with updated `from`).
+    This is safe to call multiple times (e.g., after receiving a message with updated user_type).
     """
 
     r = get_redis()
@@ -89,9 +87,7 @@ async def upsert_connection(
         conn_hash_key(connection_id),
         mapping={
             "session_id": session_id,
-            # `user_type` is a client-provided identifier (e.g., "admin", "agent", "customer").
             "user_type": user_type,
-            "client_type": client_type,
             # connected_at is first-write-wins; we only set it if missing
             # (done via HSETNX below)
             "last_seen": str(now),
@@ -167,9 +163,7 @@ async def list_connections(*, session_id: str, cleanup: bool = True) -> List[Pre
             PresenceMember(
                 connection_id=cid,
                 session_id=session_id,
-                # Backward compat: old records may still have `from`.
                 user_type=data.get("user_type") or data.get("from") or "anonymous",
-                client_type=data.get("client_type", "unknown"),
                 connected_at=connected_at,
                 last_seen=last_seen,
             )

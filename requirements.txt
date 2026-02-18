@@ -14,6 +14,12 @@ daphne>=4.0,<5.0
 # Redis client used for the ownership store (asyncio support)
 redis>=5.0,<6.0
 
+# CORS for cross-origin requests (e.g. frontend on localhost:3000)
+django-cors-headers>=4.3,<5.0
+
 # Optional helpers for 12-factor configuration
 python-dotenv>=1.0,<2.0
 dj-database-url>=2.0,<3.0
+
+# HTTP client for calling LLM service (POST /api/thread/connect)
+requests>=2.31,<3.0

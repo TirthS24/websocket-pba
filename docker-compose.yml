@@ -18,6 +18,22 @@ services:
       INSTANCE_ID: "docker-local"
       # You can also put this in an env_file; keeping it explicit avoids confusion
       DJANGO_SECRET_KEY: "local-dev-change-me"
+      # LLM service URL: use service name "llm" (container-to-container), port 7980 is internal
+      LLM_SERVICE_URL: "http://llm:7980"
     depends_on:
       - redis
+      - llm
+
+  llm:
+    build:
+      context: ./llm
+      dockerfile: Dockerfile
+    ports:
+      - "7980:7980"
+    environment:
+      # WebSocket server URL: use service name "web" so LLM container can reach ws_server
+      WS_SERVER_URL: "ws://web:8000"
+      # Optional: set via env_file for Postgres, AWS, AUTH_API_KEY, etc.
+    env_file:
+      - .env
 

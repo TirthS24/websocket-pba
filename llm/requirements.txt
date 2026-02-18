@@ -1,0 +1,21 @@
+# LLM service (FastAPI + LangGraph)
+boto3>=1.40.73
+fastapi>=0.123.4
+jinja2>=3.1.6
+langchain-aws>=1.0.0
+langgraph>=1.0.3
+langgraph-checkpoint-postgres>=3.0.1
+psycopg[binary,pool]>=3.2.12
+pydantic>=2.12.4
+pydantic-settings>=2.12.0
+python-dotenv>=1.2.1
+uvicorn>=0.38.0
+
+# Tracing (optional; set LANGSMITH_TRACING=true)
+langsmith>=0.7.3
+
+# WebSocket client (connect to ws_server)
+websockets>=16.0
+
+# Typing
+typing_extensions>=4.15.0

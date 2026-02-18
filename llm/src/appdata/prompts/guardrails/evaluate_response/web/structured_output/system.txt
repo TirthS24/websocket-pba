@@ -1,0 +1,13 @@
+Metrics to evaluate (set each to true only if the response meets the criterion; otherwise set false):
+
+- is_english: The response's primary language is English and it is grammatically correct.
+
+- no_markdown: The response uses plain text only—no markdown (no **bold**, *italic*, `code`, headers, bullet lists in markdown, or markdown-style links).
+
+- is_concise: The response is clear and reasonably concise for web.
+
+- no_pii: For web, treat as true unless the response clearly contains PII (full names, SSN, DOB, full account numbers, specific addresses).
+
+- no_payment_promises: The response does not make promises about payment plans, due dates, or amounts.
+
+- is_appropriate: The response is appropriate, safe, on-topic, and answers the user's question with a concise, precise, and helpful tone.

@@ -35,13 +35,16 @@ class SessionConsumer(AsyncWebsocketConsumer):
         self.group_name: Optional[str] = None
         self.connection_id: str = uuid.uuid4().hex  # server-assigned per-connection id
         self.user_type: Optional[str] = None
-        self.client_type: str = "unknown"
         self._presence_task: Optional[asyncio.Task] = None
         self._presence_registered: bool = False
 
     # Presence TTL: if an instance dies, these expire automatically.
     PRESENCE_TTL_SECONDS = 120
     PRESENCE_REFRESH_SECONDS = 30
+
+    # user_type must be one of these (case-insensitive; stored as lowercase).
+    # "ai" is used by the LLM service when it sends responses.
+    ALLOWED_USER_TYPES = ("patient", "operator", "ai")
 
     @staticmethod
     def _group_name(session_id: str) -> str:
@@ -110,20 +113,26 @@ class SessionConsumer(AsyncWebsocketConsumer):
         # - {"type":"broadcast","data":{...}} (backward compat) -> fan out to all listeners
         # - anything else -> echo back to sender only
 
-        # user_type is mandatory, but enforced on the FIRST client message (not on connect).
-        # Once set, it is immutable for the life of this WebSocket connection.
+        # user_type is mandatory and must be "patient" or "operator" (case-insensitive).
+        # Enforced on the FIRST client message; once set, immutable for the connection.
         if self.user_type is None:
             incoming_user_type = msg.get("user_type") or msg.get("from")  # backward compat alias
             if isinstance(incoming_user_type, str) and incoming_user_type.strip():
-                self.user_type = incoming_user_type.strip()
+                normalized = incoming_user_type.strip().lower()
+                if normalized in self.ALLOWED_USER_TYPES:
+                    self.user_type = normalized
+                else:
+                    await self.send_json({
+                        "type": "error",
+                        "error": "invalid_user_type",
+                        "detail": "user_type must be 'patient', 'operator', or 'ai'",
+                    })
+                    await self.close(code=4401)
+                    return
             else:
                 await self.send_json({"type": "error", "error": "user_type_required"})
                 await self.close(code=4401)
                 return
-
-            # Optional client_type on first message
-            if "client_type" in msg and isinstance(msg.get("client_type"), str) and msg["client_type"].strip():
-                self.client_type = msg["client_type"].strip()
 
             # Register presence now that user_type is known.
             if self.session_id:
@@ -131,18 +140,12 @@ class SessionConsumer(AsyncWebsocketConsumer):
                     session_id=self.session_id,
                     connection_id=self.connection_id,
                     user_type=self.user_type,
-                    client_type=self.client_type,
                     ttl_seconds=self.PRESENCE_TTL_SECONDS,
                 )
                 self._presence_registered = True
 
-                # Internal presence TTL refresh (no client heartbeat messages required).
                 if not self._presence_task:
                     self._presence_task = asyncio.create_task(self._presence_refresh_loop())
-
-        # After user_type is set, allow client_type updates (optional).
-        if "client_type" in msg and isinstance(msg.get("client_type"), str) and msg["client_type"].strip():
-            self.client_type = msg["client_type"].strip()
 
         # Refresh presence metadata on activity.
         if self.session_id and self._presence_registered:
@@ -150,7 +153,6 @@ class SessionConsumer(AsyncWebsocketConsumer):
                 session_id=self.session_id,
                 connection_id=self.connection_id,
                 user_type=self.user_type or "",
-                client_type=self.client_type,
                 ttl_seconds=self.PRESENCE_TTL_SECONDS,
             )
 
@@ -161,7 +163,6 @@ class SessionConsumer(AsyncWebsocketConsumer):
                     "session_id": self.session_id,
                     "connection_id": self.connection_id,
                     "user_type": self.user_type,
-                    "client_type": self.client_type,
                 }
             )
             return
@@ -176,7 +177,7 @@ class SessionConsumer(AsyncWebsocketConsumer):
             members = await list_connections(session_id=self.session_id, cleanup=True)
             by_type: Dict[str, int] = {}
             for m in members:
-                by_type[m.client_type] = by_type.get(m.client_type, 0) + 1
+                by_type[m.user_type] = by_type.get(m.user_type, 0) + 1
             await self.send_json(
                 {
                     "type": "presence",
@@ -187,7 +188,6 @@ class SessionConsumer(AsyncWebsocketConsumer):
                         {
                             "connection_id": m.connection_id,
                             "user_type": m.user_type,
-                            "client_type": m.client_type,
                             "connected_at": m.connected_at,
                             "last_seen": m.last_seen,
                         }
@@ -204,18 +204,16 @@ class SessionConsumer(AsyncWebsocketConsumer):
                 await self.send_json({"type": "error", "error": "user_type_required"})
                 await self.close(code=4401)
                 return
-            payload: Dict[str, Any] = {
-                "type": "session_message",
+            # AI responses relayed via broadcast_message handler (sends "broadcast" to client); others use session_message
+            relay_type = "broadcast_message" if self.user_type == "ai" else "session_message"
+            payload = {
+                "type": relay_type,
                 "user_type": self.user_type,
-                "client_type": self.client_type,
+                "msg": msg.get("msg") if "msg" in msg else None,
+                "data": msg.get("data") if "data" in msg else None,
+                "sender_channel": self.channel_name,
+                "sender_user_type": self.user_type,
             }
-            # Support both shapes:
-            # - {"msg":"..."} (simple)
-            # - {"data":{...}} (structured)
-            if "msg" in msg:
-                payload["msg"] = msg.get("msg")
-            if "data" in msg:
-                payload["data"] = msg.get("data")
             await self.channel_layer.group_send(
                 self.group_name,
                 payload,
@@ -225,15 +223,44 @@ class SessionConsumer(AsyncWebsocketConsumer):
         await self.send_json({"type": "echo", "data": msg})
 
     async def session_message(self, event: Dict[str, Any]) -> None:
-        """
-        Handler for group broadcasts.
-        """
-        # Fan-out message includes sender identity so receivers can show who sent it.
+        # Do not echo back to the sender (removes duplicate session_message after user broadcast)
+        if event.get("sender_channel") == self.channel_name:
+            return
+        # Operator messages only go to patients
+        if event.get("sender_user_type") == "operator" and self.user_type != "patient":
+            return
         await self.send_json(
             {
                 "type": "session_message",
                 "user_type": event.get("user_type", "anonymous"),
-                "client_type": event.get("client_type", "unknown"),
+                "msg": event.get("msg"),
+                "data": event.get("data"),
+            }
+        )
+
+    async def broadcast_message(self, event: Dict[str, Any]) -> None:
+        """Relay broadcast messages (e.g. from AI) with type 'broadcast' to clients."""
+        # Operators get empty AI response (no LLM content)
+        if self.user_type == "operator":
+            msg = event.get("msg")
+            data = event.get("data")
+            if isinstance(data, dict) and "content" in data:
+                data = {**data, "content": ""}
+            elif data is not None:
+                data = {} if not isinstance(data, dict) else data
+            await self.send_json(
+                {
+                    "type": "broadcast",
+                    "user_type": event.get("user_type", "anonymous"),
+                    "msg": "" if msg is not None else None,
+                    "data": data,
+                }
+            )
+            return
+        await self.send_json(
+            {
+                "type": "broadcast",
+                "user_type": event.get("user_type", "anonymous"),
                 "msg": event.get("msg"),
                 "data": event.get("data"),
             }
@@ -250,13 +277,11 @@ class SessionConsumer(AsyncWebsocketConsumer):
             while True:
                 await asyncio.sleep(self.PRESENCE_REFRESH_SECONDS)
                 ok = await refresh_connection(connection_id=self.connection_id, ttl_seconds=self.PRESENCE_TTL_SECONDS)
-                if not ok and self.session_id:
-                    # Record expired/was deleted; recreate it.
+                if not ok and self.session_id and self.user_type:
                     await upsert_connection(
                         session_id=self.session_id,
                         connection_id=self.connection_id,
                         user_type=self.user_type,
-                        client_type=self.client_type,
                         ttl_seconds=self.PRESENCE_TTL_SECONDS,
                     )
         except asyncio.CancelledError:

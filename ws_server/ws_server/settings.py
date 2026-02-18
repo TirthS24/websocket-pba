@@ -53,6 +53,13 @@ if not DEBUG and (not SECRET_KEY or SECRET_KEY.startswith("dev-insecure-")):
 
 ALLOWED_HOSTS = _env_csv("DJANGO_ALLOWED_HOSTS", default="localhost,127.0.0.1")
 
+# CORS: allow requests from frontend (e.g. React on localhost:3000)
+CORS_ALLOWED_ORIGINS = _env_csv("CORS_ALLOWED_ORIGINS", default="http://localhost:3000,http://127.0.0.1:3000")
+CORS_ALLOW_CREDENTIALS = True
+
+# CSRF: trust origins for cookie-based CSRF (e.g. frontend on localhost:3000)
+CSRF_TRUSTED_ORIGINS = _env_csv("CSRF_TRUSTED_ORIGINS", default="http://localhost:3000,http://127.0.0.1:3000")
+
 # When serving behind an ALB, Django must respect X-Forwarded-* headers.
 USE_X_FORWARDED_HOST = True
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
@@ -69,6 +76,7 @@ SECURE_HSTS_PRELOAD = _env_bool("DJANGO_SECURE_HSTS_PRELOAD", default=False)
 
 
 INSTALLED_APPS = [
+    "corsheaders",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -84,8 +92,8 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
-    "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
@@ -179,3 +187,7 @@ LOGGING = {
     "handlers": {"console": {"class": "logging.StreamHandler"}},
     "root": {"handlers": ["console"], "level": _env("DJANGO_LOG_LEVEL", "INFO") or "INFO"},
 }
+
+# LLM service: used by POST /api/thread/connect to trigger LLM WebSocket connection
+LLM_SERVICE_URL = _env("LLM_SERVICE_URL", "").rstrip("/")  # e.g. http://llm:8000
+WS_SERVER_URL = _env("WS_SERVER_URL", "").rstrip("/")  # e.g. ws://localhost:8000

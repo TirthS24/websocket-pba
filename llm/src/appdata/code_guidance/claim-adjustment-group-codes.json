@@ -1,0 +1,130 @@
+{
+  "CO": {
+    "description": "Contractual Obligation",
+    "summary": "Provider must write off this amount per contract.",
+    "provider_action": "Write off this amount; do not bill patient.",
+    "patient_action": "NO ACTION REQUIRED - The provider is contractually required to accept this adjustment and cannot bill you for this amount. If you receive a bill that includes amounts marked as CO, CONTACT PROVIDER immediately as they cannot bill you for contractual write-offs they've agreed to with your insurance company.",
+    "reason_codes": {
+      "42": {
+        "description": "Charges Exceed Fee Schedule",
+        "summary": "Provider billed above contracted rate.",
+        "provider_action": "Accept contractual write-off.",
+        "patient_action": "NO ACTION REQUIRED - The provider must accept the insurance company's allowed amount. You are not responsible for the difference between the billed amount and the allowed amount when using in-network providers. If you're billed for this difference, CONTACT PROVIDER immediately as this constitutes improper balance billing for in-network services."
+      },
+      "45": {
+        "description": "Charge Exceeds Fee Schedule",
+        "summary": "Charge exceeds the contracted rate",
+        "provider_action": "Accept contractual write-off",
+        "patient_action": "VERIFY IN-NETWORK STATUS - If the provider is in-network, you are not responsible for this amount. If out-of-network, CONTACT INSURANCE to verify if balance billing is allowed under your plan and state law. Some states have surprise billing protections that may prevent balance billing even for out-of-network providers in certain circumstances."
+      },
+      "97": {
+        "description": "Bundled Service",
+        "summary": "Payment included in another service.",
+        "provider_action": "Review coding rules for bundled services.",
+        "patient_action": "O ACTION REQUIRED - These services are included in another service you received. You should not be billed separately for them. If you receive separate bills for services that should be bundled, CONTACT PROVIDER immediately. This is a coding issue that the provider must correct according to standard coding guidelines."
+      },
+      "119": {
+        "description": "Benefit Maximum Reached",
+        "summary": "Patient has exhausted insurance benefits for this service.",
+        "provider_action": "Accept adjustment per contract.",
+        "patient_action": "CONTACT INSURANCE - Verify with your insurance that you have indeed reached your benefit maximum for this service. Ask when benefits will reset (typically annually) or if alternative coverage options exist. This is a benefit limitation, not a billing error, so your options may be limited until your benefits renew."
+      },
+      "253": {
+        "description": "Sequestration Reduction",
+        "summary": "Medicare-specific 2% reduction.",
+        "provider_action": "Accept adjustment; cannot bill patient",
+        "patient_action": "NO ACTION REQUIRED - This adjustment is due to federal budget requirements affecting Medicare payments. You are not responsible for this amount. If you are billed for this reduction amount, CONTACT PROVIDER as Medicare providers are prohibited from passing this reduction on to patients."
+      }
+    }
+  },
+  "OA": {
+    "description": "Other Adjustments",
+    "summary": "Administrative adjustments not billable to patient.",
+    "provider_action": "Review reason for adjustment; typically not billable to patient.",
+    "patient_action": "CONTACT PROVIDER IF BILLED - You typically are not responsible for these amounts. These are administrative adjustments made by the provider or insurance that should not result in patient billing. If you receive a bill for portions marked OA, contact your provider's billing office for clarification and request removal of these charges.",
+    "reason_codes": {
+      "18": {
+        "description": "Duplicate Claim / Service",
+        "summary": "Service already processed previously.",
+        "provider_action": "Check payment history before rebilling",
+        "patient_action": "Patient Action: CONTACT PROVIDER IF BILLED TWICE - If you receive multiple bills for the same service, contact your provider's billing department to verify you're not being billed multiple times for a single service. Request documentation showing the dates of service for each charge to confirm they are actually separate services rather than duplicate billings."
+      },
+      "23": {
+        "description": "Impact of Prior Payer Adjudication",
+        "summary": "Adjustment based on prior insurer's processing.",
+        "provider_action": "Review coordination of benefits",
+        "patient_action": "CONTACT BOTH INSURANCE COMPANIES - Ensure both your primary and secondary insurers have received all necessary information. Provide copies of explanation of benefits from primary to secondary if needed. This requires coordination between multiple insurers, so you may need to facilitate information exchange between them to ensure proper processing."
+      },
+      "29": {
+        "description": "Time Limit for Filing Expired",
+        "summary": "Claim submitted after deadline.",
+        "provider_action": "Review internal processes to prevent future timely filing issues",
+        "patient_action": "CONTACT PROVIDER - Discuss with your provider why the claim was filed late. Ask if they can appeal the timely filing denial with documentation showing when services were provided or if they will write off the balance since the late filing was their error. In many cases, providers should absorb costs for claims they failed to submit timely."
+      }
+    }
+  },
+  "PI": {
+    "description": "Payer Initiated Reductions",
+    "summary": "Insurance reduced payment for specific reasons.",
+    "provider_action": "Review reason for reduction; may be appealable.",
+    "patient_action": "CONTACT INSURANCE FIRST, THEN PROVIDER - First verify with your insurance why they reduced the payment and the specific reason. Then ask your provider if they plan to appeal this reduction or if you can be billed for it according to your plan and network agreement. Your financial responsibility may depend on whether your provider is in-network and the reason for reduction.",
+    "reason_codes": {
+      "16": {
+        "description": "Claim/Service Lacks Information",
+        "summary": "Insurance denied claim due to missing information.",
+        "provider_action": "Correct and resubmit claim",
+        "patient_action": "CONTACT PROVIDER PROMPTLY - Alert your provider's billing office that additional information is needed. Ask them what specific information is missing and when they will resubmit. This is the provider's responsibility to correct and resubmit, not yours. Follow up to ensure they've taken action to prevent further delays in processing."
+      },
+      "A1": {
+        "description": "Claim Denied Charges",
+        "summary": "Insurance denied claim / line completely",
+        "provider_action": "Review denial reason and appeal if appropriate",
+        "patient_action": "CONTACT PROVIDER AND INSURANCE - Ask your provider if they will appeal this denial based on the specific reason. Contact your insurance to understand exactly why the claim was denied and your options. Depending on the denial reason, either the provider may need to correct something or you may need to provide additional information to your insurance."
+      }
+    }
+  },
+  "PR": {
+    "description": "Patient Responsibility",
+    "summary": "This portion is the patient's financial obligation.",
+    "provider_action": "Bill the patient for this amount.",
+    "patient_action": "YOU MUST PAY THIS AMOUNT - This is your financial responsibility according to your plan benefits. Contact your provider's billing office to arrange payment or set up a payment plan if needed. If you believe there's an error in how your responsibility was calculated, CONTACT INSURANCE first to verify the amount is correct according to your benefits, then discuss with your provider.",
+    "reason_codes": {
+      "1": {
+        "description": "Deductible Amount",
+        "summary": "Amount applied to the patient's annual deductible.",
+        "provider_action": "Bill patient for this amount.",
+        "patient_action": "YOU MUST PAY THIS AMOUNT - This is applied to your deductible and is your responsibility. Contact your provider to arrange payment. Track your deductible spending with your insurance company to know when you've met it for the year. If you believe your deductible was calculated incorrectly, contact your insurance to verify your current deductible status."
+      },
+      "2": {
+        "description": "Coinsurance Amount",
+        "summary": "The patient's percentage of responsibility after deductible.",
+        "provider_action": "Bill patient for this amount.",
+        "patient_action": "YOU MUST PAY THIS AMOUNT - This is your coinsurance responsibility. Contact your provider to arrange payment. Verify the calculation is correct based on your insurance plan's coinsurance percentage (typically 10-30% of the allowed amount). If the percentage seems incorrect, CONTACT INSURANCE to verify your coinsurance rate for this service."
+      },
+      "3": {
+        "description": "Co-payment Amount",
+        "summary": "Fixed amount due from patient at time of service.",
+        "provider_action": "Collect at time of service or bill patient.",
+        "patient_action": "YOU MUST PAY THIS AMOUNT - This is your co-payment responsibility. Pay at time of service if possible, or promptly respond to any bill received. Co-payments are a fixed amount established by your insurance plan. If you believe the co-payment amount is incorrect, CONTACT INSURANCE to verify the correct co-payment for this service type."
+      },
+      "4": {
+        "description": "Non-covered Service with Advanced Beneficiary Notice (ABN)",
+        "summary": "Patient responsible for this charge after being notified.",
+        "provider_action": "Bill patient with proof of Advanced Beneficiary Notice (ABN)",
+        "patient_action": "YOU MUST PAY THIS AMOUNT - You signed an Advance Beneficiary Notice (ABN) agreeing to pay for this service knowing it wouldn't be covered. Review the ABN you signed, which should have explained the expected cost. Contact your provider about payment options. If you don't recall signing an ABN, request a copy from your provider."
+      },
+      "31": {
+        "description": "Patient Cannot Be Identified",
+        "summary": "Insurance has no record of patient coverage.",
+        "provider_action": "Verify patient insurance information.",
+        "patient_action": "CONTACT INSURANCE IMMEDIATELY - Call your insurance company with your correct policy information and identification. Provide a copy of your current insurance card to your provider's office. This requires coordination between you, your provider, and your insurance to ensure all parties have accurate information about your coverage status."
+      },
+      "96": {
+        "description": "Non-covered Service",
+        "summary": "Service not covered; patient responsible.",
+        "provider_action": "Bill patient after obtaining ABN (for Medicare)",
+        "patient_action": "YOU MUST PAY THIS AMOUNT - This service is not covered by your insurance plan. If you signed an Advance Beneficiary Notice (ABN) for Medicare or a similar waiver for private insurance, you agreed to pay for this service knowing it wouldn't be covered. Contact provider about payment arrangements. If you didn't receive advance notice that the service wouldn't be covered, CONTACT INSURANCE to verify your rights."
+      }
+    }
+  }
+}

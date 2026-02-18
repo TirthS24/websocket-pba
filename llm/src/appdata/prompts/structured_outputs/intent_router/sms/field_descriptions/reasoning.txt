@@ -1,0 +1,1 @@
+Brief explanation of why this routing decision was made. Useful for debugging, auditing, and improving the router. Should be concise (1-2 sentences) and not shown to the end user.

@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebSocket + LLM + Two Users Test</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      margin: 0;
+      padding: 1rem;
+      background: #1a1b26;
+      color: #c0caf5;
+      min-height: 100vh;
+    }
+    h1 { color: #7aa2f7; margin-top: 0; }
+    h2 { color: #9ece6a; font-size: 1rem; margin: 1rem 0 0.5rem; }
+    section {
+      background: #24283b;
+      border-radius: 8px;
+      padding: 1rem;
+      margin-bottom: 1rem;
+      border: 1px solid #3b4261;
+    }
+    .row { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.5rem; }
+    label { min-width: 100px; }
+    input[type="text"], select, button {
+      padding: 0.5rem 0.75rem;
+      border-radius: 6px;
+      border: 1px solid #3b4261;
+      background: #1a1b26;
+      color: #c0caf5;
+    }
+    input[type="text"] { flex: 1; min-width: 120px; }
+    button {
+      cursor: pointer;
+      background: #7aa2f7;
+      color: #1a1b26;
+      border: none;
+      font-weight: 600;
+    }
+    button:hover { background: #89b4fa; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button.danger { background: #f7768e; color: #1a1b26; }
+    button.danger:hover { background: #ff9eaf; }
+    .status { font-size: 0.875rem; color: #a9b1d6; }
+    .status.connected { color: #9ece6a; }
+    .status.error { color: #f7768e; }
+    #log {
+      font-family: ui-monospace, monospace;
+      font-size: 0.8rem;
+      background: #16161e;
+      border: 1px solid #3b4261;
+      border-radius: 6px;
+      padding: 0.75rem;
+      max-height: 320px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .log-entry { margin-bottom: 0.25rem; }
+    .log-entry.in { color: #9ece6a; }
+    .log-entry.out { color: #7aa2f7; }
+    .log-entry.sys { color: #bb9af7; }
+    .log-entry.err { color: #f7768e; }
+    .two-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    @media (max-width: 640px) { .two-cols { grid-template-columns: 1fr; } }
+    textarea {
+      width: 100%;
+      min-height: 60px;
+      padding: 0.5rem;
+      border-radius: 6px;
+      border: 1px solid #3b4261;
+      background: #1a1b26;
+      color: #c0caf5;
+      resize: vertical;
+    }
+  </style>
+</head>
+<body>
+  <h1>WebSocket + LLM + Two Users Test</h1>
+  <p class="status">Use same session/thread id for all connections. Connect LLM first, then connect two users and send chat messages.</p>
+
+  <section>
+    <h2>Session</h2>
+    <div class="row">
+      <label for="base">Base URL</label>
+      <input type="text" id="base" value="http://localhost:8000" placeholder="e.g. http://localhost:8000 (leave empty for current origin)">
+    </div>
+    <div class="row">
+      <label for="threadId">Thread / Session ID</label>
+      <input type="text" id="threadId" value="22115a02-2cd4-4dba-84db-37bcde206ce0" placeholder="thread_id">
+    </div>
+    <div class="row">
+      <button type="button" id="btnConnectLlm">Connect LLM to session</button>
+      <span class="status" id="llmStatus"></span>
+    </div>
+  </section>
+
+  <div class="two-cols">
+    <section>
+      <h2>User A</h2>
+      <div class="row">
+        <label>User type</label>
+        <select id="userAType"><option value="patient">patient</option><option value="operator">operator</option></select>
+      </div>
+      <div class="row">
+        <button type="button" id="btnConnectA">Connect WebSocket</button>
+        <button type="button" id="btnDisconnectA" class="danger" disabled>Disconnect</button>
+      </div>
+      <div class="row"><span class="status" id="statusA"></span></div>
+      <div class="row">
+        <label for="msgA">Message</label>
+      </div>
+      <textarea id="msgA" placeholder="Type a message to broadcast as chat_message (to LLM or other users)"></textarea>
+      <div class="row" style="margin-top: 0.5rem;">
+        <button type="button" id="btnSendA">Send message</button>
+      </div>
+    </section>
+    <section>
+      <h2>User B</h2>
+      <div class="row">
+        <label>User type</label>
+        <select id="userBType"><option value="patient">patient</option><option value="operator">operator</option></select>
+      </div>
+      <div class="row">
+        <button type="button" id="btnConnectB">Connect WebSocket</button>
+        <button type="button" id="btnDisconnectB" class="danger" disabled>Disconnect</button>
+      </div>
+      <div class="row"><span class="status" id="statusB"></span></div>
+      <div class="row">
+        <label for="msgB">Message</label>
+      </div>
+      <textarea id="msgB" placeholder="Type a message to broadcast"></textarea>
+      <div class="row" style="margin-top: 0.5rem;">
+        <button type="button" id="btnSendB">Send message</button>
+      </div>
+    </section>
+  </div>
+
+  <section>
+    <h2>Chat payload (optional invoice)</h2>
+    <p class="status">Paste invoice JSON to include with the next chat message (same shape as temp.json: practice, patient, claims, stripe_payment_link, web_app_link).</p>
+    <div class="row">
+      <label for="invoiceJson">Invoice JSON (optional)</label>
+    </div>
+    <textarea id="invoiceJson" placeholder='Optional: { "practice": {...}, "patient": {...}, "claims": [...], "stripe_payment_link": "...", "web_app_link": "..." }' style="min-height: 120px;"></textarea>
+  </section>
+
+  <section>
+    <h2>Thread API (via ws_server)</h2>
+    <div class="row">
+      <button type="button" id="btnHistory">Get thread history</button>
+      <button type="button" id="btnSummarize">Get thread summarize</button>
+    </div>
+    <div id="apiResult" class="status" style="margin-top: 0.5rem;"></div>
+  </section>
+
+  <section>
+    <h2>Event log</h2>
+    <button type="button" id="btnClearLog">Clear log</button>
+    <div id="log"></div>
+  </section>
+
+  <script>
+    (function () {
+      function baseUrl() {
+        const b = document.getElementById('base').value.trim();
+        return b || (window.location.origin);
+      }
+      function wsUrl(path) {
+        const b = baseUrl();
+        const protocol = b.startsWith('https') ? 'wss:' : 'ws:';
+        const host = b.replace(/^https?:\/\//, '');
+        return protocol + '//' + host + path;
+      }
+      function apiUrl(path) {
+        return baseUrl() + path;
+      }
+      function threadId() {
+        return document.getElementById('threadId').value.trim() || 'test-session-1';
+      }
+
+      const logEl = document.getElementById('log');
+      function log(msg, cls) {
+        const e = document.createElement('div');
+        e.className = 'log-entry ' + (cls || '');
+        e.textContent = new Date().toISOString().slice(11, 23) + ' ' + msg;
+        logEl.appendChild(e);
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      document.getElementById('btnClearLog').onclick = function () {
+        logEl.innerHTML = '';
+      };
+
+      // ---- Connect LLM ----
+      document.getElementById('btnConnectLlm').onclick = async function () {
+        const status = document.getElementById('llmStatus');
+        status.textContent = 'Calling...';
+        status.className = 'status';
+        try {
+          const r = await fetch(apiUrl('/api/thread/connect/'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ thread_id: threadId() })
+          });
+          const data = await r.json().catch(() => ({}));
+          if (r.ok) {
+            status.textContent = 'LLM connect requested: ' + (data.thread_id || threadId());
+            status.className = 'status connected';
+            log('LLM connect OK: ' + JSON.stringify(data), 'out');
+          } else {
+            status.textContent = 'Error: ' + (data.error || data.detail || r.status);
+            status.className = 'status error';
+            log('LLM connect failed: ' + JSON.stringify(data), 'err');
+          }
+        } catch (e) {
+          status.textContent = 'Error: ' + e.message;
+          status.className = 'status error';
+          log('LLM connect error: ' + e.message, 'err');
+        }
+      };
+
+      // ---- User A WebSocket ----
+      let wsA = null;
+      function connectUser(which) {
+        const id = threadId();
+        const url = wsUrl('/ws/session/' + encodeURIComponent(id) + '/');
+        const userSelect = document.getElementById(which === 'A' ? 'userAType' : 'userBType');
+        const userType = userSelect.value;
+        const statusEl = document.getElementById(which === 'A' ? 'statusA' : 'statusB');
+        const btnConnect = document.getElementById(which === 'A' ? 'btnConnectA' : 'btnConnectB');
+        const btnDisconnect = document.getElementById(which === 'A' ? 'btnDisconnectA' : 'btnDisconnectB');
+        const wsRef = which === 'A' ? 'wsA' : 'wsB';
+
+        if (which === 'A' && wsA) return;
+        if (which === 'B' && wsB) return;
+        log('User ' + which + ' connecting to ' + url, 'sys');
+        const ws = new WebSocket(url);
+        ws.onopen = function () {
+          statusEl.textContent = 'Connected, sending hello...';
+          statusEl.className = 'status';
+          ws.send(JSON.stringify({ type: 'hello', user_type: userType }));
+          log('User ' + which + ' sent hello', 'out');
+        };
+        ws.onmessage = function (ev) {
+          try {
+            const msg = JSON.parse(ev.data);
+            log('User ' + which + ' < ' + ev.data, 'in');
+            if (msg.type === 'hello_ack') {
+              statusEl.textContent = 'Connected as ' + userType;
+              statusEl.className = 'status connected';
+            }
+            if ((msg.type === 'broadcast') && msg.data) {
+              const d = msg.data;
+              const t = d.type || d.event;
+              if (t === 'token' && d.content) log('User ' + which + ' [token] ' + d.content, 'in');
+              if (t === 'static' && d.content) log('User ' + which + ' [static] ' + d.content, 'in');
+              if (t === 'escalation') log('User ' + which + ' [escalation] ' + JSON.stringify(d), 'sys');
+              if (t === 'end') log('User ' + which + ' [end]', 'in');
+              if (t === 'error') log('User ' + which + ' [error] ' + (d.content || d.message || ''), 'err');
+            }
+          } catch (_) {
+            log('User ' + which + ' < ' + ev.data, 'in');
+          }
+        };
+        ws.onclose = function () {
+          statusEl.textContent = 'Disconnected';
+          statusEl.className = 'status';
+          btnConnect.disabled = false;
+          btnDisconnect.disabled = true;
+          if (which === 'A') wsA = null; else wsB = null;
+          log('User ' + which + ' disconnected', 'sys');
+        };
+        ws.onerror = function () {
+          statusEl.textContent = 'WebSocket error';
+          statusEl.className = 'status error';
+        };
+        if (which === 'A') wsA = ws; else wsB = ws;
+        btnConnect.disabled = true;
+        btnDisconnect.disabled = false;
+      }
+      function disconnectUser(which) {
+        const ws = which === 'A' ? wsA : wsB;
+        if (ws) { ws.close(); if (which === 'A') wsA = null; else wsB = null; }
+      }
+      function sendChat(which) {
+        const ws = which === 'A' ? wsA : wsB;
+        const msgEl = document.getElementById(which === 'A' ? 'msgA' : 'msgB');
+        const text = (msgEl.value || '').trim();
+        if (!text) return;
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+          log('User ' + which + ': not connected', 'err');
+          return;
+        }
+        const data = { type: 'chat', message: text, channel: 'web', thread_id: threadId() };
+        const invoiceEl = document.getElementById('invoiceJson');
+        const invoiceText = (invoiceEl && invoiceEl.value || '').trim();
+        if (invoiceText) {
+          try {
+            const invoiceObj = JSON.parse(invoiceText);
+            if (invoiceObj && typeof invoiceObj === 'object') {
+              data.invoice = invoiceObj.invoice != null ? invoiceObj.invoice : invoiceObj;
+              if (data.invoice) {
+                data.stripe_payment_link = data.invoice.stripe_payment_link || invoiceObj.stripe_payment_link;
+                data.web_app_link = data.invoice.web_app_link || invoiceObj.web_app_link;
+              }
+            }
+          } catch (e) {
+            log('Invalid invoice JSON: ' + e.message, 'err');
+          }
+        }
+        const payload = { type: 'broadcast', data: data };
+        ws.send(JSON.stringify(payload));
+        log('User ' + which + ' sent chat: ' + text, 'out');
+        msgEl.value = '';
+      }
+
+      document.getElementById('btnConnectA').onclick = function () { connectUser('A'); };
+      document.getElementById('btnDisconnectA').onclick = function () { disconnectUser('A'); };
+      document.getElementById('btnSendA').onclick = function () { sendChat('A'); };
+
+      // ---- User B WebSocket ----
+      let wsB = null;
+      document.getElementById('btnConnectB').onclick = function () { connectUser('B'); };
+      document.getElementById('btnDisconnectB').onclick = function () { disconnectUser('B'); };
+      document.getElementById('btnSendB').onclick = function () { sendChat('B'); };
+
+      // ---- Thread history / summarize ----
+      document.getElementById('btnHistory').onclick = async function () {
+        const res = document.getElementById('apiResult');
+        res.textContent = 'Loading...';
+        try {
+          const r = await fetch(apiUrl('/api/thread/history/'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ thread_id: threadId() })
+          });
+          const data = await r.json().catch(() => ({}));
+          res.textContent = r.ok ? ('History: ' + JSON.stringify(data).slice(0, 200) + (JSON.stringify(data).length > 200 ? '...' : '')) : ('Error: ' + (data.error || data.detail || r.status));
+          log('thread/history: ' + r.status, r.ok ? 'out' : 'err');
+        } catch (e) {
+          res.textContent = 'Error: ' + e.message;
+          log('thread/history error: ' + e.message, 'err');
+        }
+      };
+      document.getElementById('btnSummarize').onclick = async function () {
+        const res = document.getElementById('apiResult');
+        res.textContent = 'Loading...';
+        try {
+          const r = await fetch(apiUrl('/api/thread/summarize/'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ thread_id: threadId() })
+          });
+          const data = await r.json().catch(() => ({}));
+          res.textContent = r.ok ? ('Summary: ' + (data.summary || '').slice(0, 300) + ((data.summary || '').length > 300 ? '...' : '')) : ('Error: ' + (data.error || data.detail || r.status));
+          log('thread/summarize: ' + r.status, r.ok ? 'out' : 'err');
+        } catch (e) {
+          res.textContent = 'Error: ' + e.message;
+          log('thread/summarize error: ' + e.message, 'err');
+        }
+      };
+    })();
+  </script>
+</body>
+</html>

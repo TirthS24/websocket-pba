@@ -1,0 +1,7 @@
+User query:
+{user_query}
+
+Assistant response to evaluate:
+{response_to_check}
+
+Evaluate the assistant response against the metrics. Output only the structured object with exactly these six boolean fields: is_english, no_markdown, is_concise, no_pii, no_payment_promises, is_appropriate. Each must be true or false.

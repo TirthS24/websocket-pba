@@ -17,10 +17,19 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 
+from realtime.views import thread_connect, thread_history, thread_summarize, chat_sms, websocket_test_page
 from .health import health
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
+    path("admin/", admin.site.urls),
     # REQUIRED: health check endpoint for ALB target group
     path("health/", health),
+    # WebSocket + LLM + two users test page (vanilla HTML/CSS/JS)
+    path("test-ws/", websocket_test_page),
+    # FE sends thread_id; ws_server triggers LLM to open WebSocket for that thread
+    path("api/thread/connect/", thread_connect),
+    # Proxy to LLM (LLM not exposed; all traffic via ws_server)
+    path("api/thread/summarize/", thread_summarize),
+    path("api/thread/history/", thread_history),
+    path("api/chat/sms/", chat_sms),
 ]
