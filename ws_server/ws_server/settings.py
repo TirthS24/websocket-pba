@@ -16,15 +16,8 @@ from typing import List
 
 from corsheaders.defaults import default_headers as _cors_default_headers
 
-try:
-    # Optional: allows local dev to load env vars from a `.env` file.
-    # In production, prefer systemd EnvironmentFile or EC2 launch template env.
-    from dotenv import load_dotenv
-
-    load_dotenv()
-except Exception:
-    pass
-
+# Secrets are loaded from AWS Secrets Manager by ws_server.env_bootstrap,
+# which is imported before this module in manage.py, asgi.py, and wsgi.py.
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 

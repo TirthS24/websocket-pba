@@ -22,6 +22,7 @@ from aws_cdk import (
     aws_elasticloadbalancingv2 as elbv2,
     aws_iam as iam,
     aws_logs as logs,
+    aws_secretsmanager as secretsmanager,
 )
 from constructs import Construct
 from dotenv import load_dotenv
@@ -29,6 +30,28 @@ from dotenv import load_dotenv
 # LLM service port (same ECS task, second port)
 LLM_CONTAINER_PORT = 7980
 REDIS_PORT = 6379
+
+# Keys provided by Secrets Manager (not from .env / task environment)
+WS_SECRET_KEYS = {"DJANGO_SECRET_KEY", "AUTH_API_KEY", "LLM_SERVICE_AUTH"}
+LLM_SECRET_KEYS = {
+    "PSQL_BOT_USERNAME",
+    "PSQL_BOT_PASSWORD",
+    "PSQL_HOST",
+    "PSQL_PORT",
+    "PSQL_STATE_DATABASE",
+    "PSQL_SSLMODE",
+    "AWS_BEDROCK_REGION",
+    "BEDROCK_MODEL_ID_BILLING_AGENT",
+    "BEDROCK_MODEL_ID_CLAIM_AGENT",
+    "BEDROCK_MODEL_ID_ESCALATION_DETECTION",
+    "BEDROCK_MODEL_ID_INTENT_DETECTION",
+    "BEDROCK_MODEL_ID_SMS_ROUTER",
+    "BEDROCK_MODEL_ID_THREAD_SUMMARIZE",
+    "BEDROCK_MODEL_ID_SMS_RESPOND",
+    "BEDROCK_MODEL_ID_WEB_RESPOND",
+    "AUTH_API_KEY",
+    "MAXIMUM_GUARDRAIL_REWRITES",
+}
 
 
 class WebSocketPbaStack(Stack):
@@ -389,6 +412,20 @@ class WebSocketPbaStack(Stack):
                 removal_policy=kwargs.get("removal_policy"),
             )
 
+            # Reference existing secrets (create in AWS Console before deploy)
+            ws_secret = secretsmanager.Secret.from_secret_name_v2(
+                self,
+                "WsServerSecret",
+                secret_name=f"pba-{environment}/ws-server-secrets",
+            )
+            llm_secret = secretsmanager.Secret.from_secret_name_v2(
+                self,
+                "LLMSecret",
+                secret_name=f"pba-{environment}/llm-server-secrets",
+            )
+            ws_secret.grant_read(task_execution_role)
+            llm_secret.grant_read(task_execution_role)
+
             redis_primary = redis_cluster.attr_primary_end_point_address
             redis_port_attr = redis_cluster.attr_primary_end_point_port
             ws_alb_dns = alb.load_balancer_dns_name
@@ -400,10 +437,40 @@ class WebSocketPbaStack(Stack):
                 "LLM_SERVICE_URL": f"http://{llm_alb_dns}",
             }
 
-            ws_env = self._load_task_environment_variables(env_overrides)
-            # LLM env: no REDIS_URL (Redis only for ws_server); APPDATA_FOLDER_PATH for standalone LLM image
-            llm_env = {k: v for k, v in ws_env.items() if k != "REDIS_URL"}
+            # Load env from .env; exclude keys provided by Secrets Manager
+            full_env = self._load_task_environment_variables(
+                env_overrides,
+                exclude_keys=WS_SECRET_KEYS | LLM_SECRET_KEYS,
+            )
+            ws_env = dict(full_env)
+            # LLM env: no REDIS_URL; APPDATA_FOLDER_PATH for standalone LLM image
+            llm_env = {k: v for k, v in full_env.items() if k != "REDIS_URL"}
             llm_env["APPDATA_FOLDER_PATH"] = "/app/appdata"
+
+            ws_secrets = {
+                "DJANGO_SECRET_KEY": ecs.Secret.from_secrets_manager(ws_secret, field="DJANGO_SECRET_KEY"),
+                "AUTH_API_KEY": ecs.Secret.from_secrets_manager(ws_secret, field="AUTH_API_KEY"),
+                "LLM_SERVICE_AUTH": ecs.Secret.from_secrets_manager(ws_secret, field="LLM_SERVICE_AUTH"),
+            }
+            llm_secrets = {
+                "PSQL_BOT_USERNAME": ecs.Secret.from_secrets_manager(llm_secret, field="PSQL_BOT_USERNAME"),
+                "PSQL_BOT_PASSWORD": ecs.Secret.from_secrets_manager(llm_secret, field="PSQL_BOT_PASSWORD"),
+                "PSQL_HOST": ecs.Secret.from_secrets_manager(llm_secret, field="PSQL_HOST"),
+                "PSQL_PORT": ecs.Secret.from_secrets_manager(llm_secret, field="PSQL_PORT"),
+                "PSQL_STATE_DATABASE": ecs.Secret.from_secrets_manager(llm_secret, field="PSQL_STATE_DATABASE"),
+                "PSQL_SSLMODE": ecs.Secret.from_secrets_manager(llm_secret, field="PSQL_SSLMODE"),
+                "AWS_BEDROCK_REGION": ecs.Secret.from_secrets_manager(llm_secret, field="AWS_BEDROCK_REGION"),
+                "BEDROCK_MODEL_ID_BILLING_AGENT": ecs.Secret.from_secrets_manager(llm_secret, field="BEDROCK_MODEL_ID_BILLING_AGENT"),
+                "BEDROCK_MODEL_ID_CLAIM_AGENT": ecs.Secret.from_secrets_manager(llm_secret, field="BEDROCK_MODEL_ID_CLAIM_AGENT"),
+                "BEDROCK_MODEL_ID_ESCALATION_DETECTION": ecs.Secret.from_secrets_manager(llm_secret, field="BEDROCK_MODEL_ID_ESCALATION_DETECTION"),
+                "BEDROCK_MODEL_ID_INTENT_DETECTION": ecs.Secret.from_secrets_manager(llm_secret, field="BEDROCK_MODEL_ID_INTENT_DETECTION"),
+                "BEDROCK_MODEL_ID_SMS_ROUTER": ecs.Secret.from_secrets_manager(llm_secret, field="BEDROCK_MODEL_ID_SMS_ROUTER"),
+                "BEDROCK_MODEL_ID_THREAD_SUMMARIZE": ecs.Secret.from_secrets_manager(llm_secret, field="BEDROCK_MODEL_ID_THREAD_SUMMARIZE"),
+                "BEDROCK_MODEL_ID_SMS_RESPOND": ecs.Secret.from_secrets_manager(llm_secret, field="BEDROCK_MODEL_ID_SMS_RESPOND"),
+                "BEDROCK_MODEL_ID_WEB_RESPOND": ecs.Secret.from_secrets_manager(llm_secret, field="BEDROCK_MODEL_ID_WEB_RESPOND"),
+                "AUTH_API_KEY": ecs.Secret.from_secrets_manager(llm_secret, field="AUTH_API_KEY"),
+                "MAXIMUM_GUARDRAIL_REWRITES": ecs.Secret.from_secrets_manager(llm_secret, field="MAXIMUM_GUARDRAIL_REWRITES"),
+            }
 
             runtime_platform = ecs.RuntimePlatform(
                 cpu_architecture=ecs.CpuArchitecture.ARM64,
@@ -427,6 +494,7 @@ class WebSocketPbaStack(Stack):
                     log_group=log_group,
                 ),
                 environment=ws_env,
+                secrets=ws_secrets,
             )
             ws_container.add_port_mappings(
                 ecs.PortMapping(container_port=container_port, protocol=ecs.Protocol.TCP)
@@ -449,6 +517,7 @@ class WebSocketPbaStack(Stack):
                     log_group=log_group,
                 ),
                 environment=llm_env,
+                secrets=llm_secrets,
             )
             llm_container.add_port_mappings(
                 ecs.PortMapping(
@@ -561,11 +630,15 @@ class WebSocketPbaStack(Stack):
             description="Redis connection URL (redis://host:port/0)",
         )
 
-    def _load_task_environment_variables(self, overrides: dict | None = None) -> dict:
+    def _load_task_environment_variables(
+        self,
+        overrides: dict | None = None,
+        exclude_keys: set[str] | None = None,
+    ) -> dict:
         """
         Load environment variables from .env file for ECS task definition.
 
-        Excludes CDK-specific variables and includes Django/LLM app variables.
+        Excludes CDK-specific variables and optionally keys provided by Secrets Manager.
         When overrides is provided (e.g. REDIS_URL, WS_SERVER_URL, LLM_SERVICE_URL from
         stack constructs), those values take precedence over .env.
         """
@@ -605,16 +678,18 @@ class WebSocketPbaStack(Stack):
             "REDIS_CACHE_NODE_TYPE",
         }
 
-        # Load all environment variables except CDK-specific ones
+        excluded = exclude_keys or set()
+
+        # Load all environment variables except CDK-specific and secret keys
         task_env = {}
         for key, value in os.environ.items():
-            if key not in cdk_vars and value:
+            if key not in cdk_vars and key not in excluded and value:
                 task_env[key] = value
 
         # Stack-injected overrides (Redis, ALB endpoints) take precedence
         if overrides:
             for key, value in overrides.items():
-                if value is not None:
+                if value is not None and key not in excluded:
                     task_env[key] = str(value)
 
         return task_env

@@ -1,5 +1,6 @@
-from dotenv import load_dotenv
-load_dotenv()
+# Load secrets from AWS Secrets Manager before any other app imports
+import applib.env_secrets
+
 from applib.graph.graph_manager import graph_manager
 from applib.api.routes import router
 from applib.config import config

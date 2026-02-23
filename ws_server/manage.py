@@ -1,5 +1,8 @@
 #!/usr/bin/env python
 """Django's command-line utility for administrative tasks."""
+# Load secrets from AWS Secrets Manager before Django settings are loaded
+import ws_server.ws_server.env_bootstrap  # noqa: F401
+
 import os
 import sys
 

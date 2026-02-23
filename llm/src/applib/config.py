@@ -4,12 +4,9 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     PSQL_BOT_USERNAME: str
     PSQL_BOT_PASSWORD: str
-    PSQL_FE_USERNAME: str
-    PSQL_FE_PASSWORD: str
     PSQL_HOST: str
     PSQL_PORT: str
     PSQL_STATE_DATABASE: str
-    PSQL_DATA_DATABASE: str
     PSQL_SSLMODE: str
     AWS_BEDROCK_REGION: str
     BEDROCK_MODEL_ID_BILLING_AGENT: str
