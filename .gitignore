@@ -14,3 +14,9 @@ ws_server/.env
 .env.*
 !example.env
 
+# CDK
+cdk.out/
+cdk.context.json
+
+# IDE
+.cursor/
