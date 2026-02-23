@@ -10,8 +10,13 @@ class JinjaEnvironments:
         lstrip_blocks=True,
         trim_blocks=True
     )
-    claim = Environment(
-        loader=FileSystemLoader(_TEMPLATES_FOLDER / "claim"),
+    invoice = Environment(
+        loader=FileSystemLoader(_TEMPLATES_FOLDER / "invoice"),
+        lstrip_blocks=True,
+        trim_blocks=True
+    )
+    invoice_xml = Environment(
+        loader=FileSystemLoader(_TEMPLATES_FOLDER / "invoice_xml"),
         lstrip_blocks=True,
         trim_blocks=True
     )

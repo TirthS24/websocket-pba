@@ -22,14 +22,35 @@ from django.views.decorators.http import require_http_methods
 logger = logging.getLogger(__name__)
 
 
-def _llm_request(method: str, path: str, json_body: dict | None = None, timeout: int = 30):
-    """Call LLM service; returns (response, status_code) or (None, error_status) on failure."""
+def _llm_headers(request=None):
+    """
+    Headers to send to LLM. Always include x-api-key when AUTH_API_KEY is set
+    so the LLM accepts the proxied request. Prefer the client's x-api-key when
+    present (so the same key is forwarded), otherwise use the server's AUTH_API_KEY.
+    """
+    headers = {}
+    api_key = None
+    if request is not None:
+        api_key = (
+            (request.headers.get("X-Api-Key") or request.headers.get("x-api-key") or "").strip()
+            or request.META.get("HTTP_X_API_KEY", "").strip()
+        )
+    if not api_key:
+        api_key = getattr(settings, "AUTH_API_KEY", None) or ""
+    if api_key:
+        headers["x-api-key"] = api_key
+    return headers
+
+
+def _llm_request(method: str, path: str, request=None, json_body: dict | None = None, timeout: int = 30):
+    """Call LLM service; returns JsonResponse. Pass request to forward x-api-key to LLM."""
     base = getattr(settings, "LLM_SERVICE_URL", None) or ""
     base = base.rstrip("/")
     if not base:
         return JsonResponse({"detail": "LLM_SERVICE_URL not configured"}, status=503)
 
     url = f"{base}{path}"
+    headers = _llm_headers(request)
 
     try:
         import requests
@@ -39,9 +60,9 @@ def _llm_request(method: str, path: str, json_body: dict | None = None, timeout:
 
     try:
         if method == "POST":
-            resp = requests.post(url, json=json_body or {}, timeout=timeout)
+            resp = requests.post(url, json=json_body or {}, headers=headers, timeout=timeout)
         else:
-            resp = requests.get(url, timeout=timeout)
+            resp = requests.get(url, headers=headers, timeout=timeout)
     except requests.RequestException as e:
         logger.warning("LLM service call failed %s %s: %s", method, path, e)
         return JsonResponse(
@@ -84,12 +105,14 @@ def thread_connect(request):
         # Do not connect to LLM for operator; they only broadcast to patients
         return JsonResponse({"status": "ok", "thread_id": thread_id, "llm_connected": False})
 
+    # LLM route is POST /thread/connect (no trailing slash)
     url = f"{settings.LLM_SERVICE_URL.rstrip('/')}/thread/connect"
+    headers = _llm_headers(request)
 
     try:
         import requests
 
-        resp = requests.post(url, json={"thread_id": thread_id}, timeout=10)
+        resp = requests.post(url, json={"thread_id": thread_id}, headers=headers, timeout=10)
     except ImportError:
         logger.error("requests not installed; add requests to ws_server dependencies")
         return JsonResponse({"detail": "Server misconfiguration"}, status=503)
@@ -138,7 +161,7 @@ def thread_summarize(request):
     thread_id = (body.get("thread_id") or "").strip()
     if not thread_id:
         return JsonResponse({"detail": "thread_id is required"}, status=400)
-    return _llm_request("POST", "/thread/summarize", json_body={"thread_id": thread_id}, timeout=60)
+    return _llm_request("POST", "/thread/summarize", request=request, json_body={"thread_id": thread_id}, timeout=60)
 
 
 @require_http_methods(["POST"])
@@ -156,7 +179,7 @@ def thread_history(request):
     thread_id = (body.get("thread_id") or "").strip()
     if not thread_id:
         return JsonResponse({"detail": "thread_id is required"}, status=400)
-    return _llm_request("POST", "/thread/history", json_body={"thread_id": thread_id}, timeout=30)
+    return _llm_request("POST", "/thread/history", request=request, json_body={"thread_id": thread_id}, timeout=30)
 
 
 @require_http_methods(["POST"])
@@ -175,10 +198,12 @@ def chat_sms(request):
     return _llm_request(
         "POST",
         "/chat/sms",
+        request=request,
         json_body={
             "message": body.get("message", ""),
             "thread_id": (body.get("thread_id") or "").strip(),
-            "invoice": body.get("invoice"),
+            # "invoice": body.get("invoice"),
+            "webapp_link": body.get("webapp_link"),
         },
         timeout=60,
     )

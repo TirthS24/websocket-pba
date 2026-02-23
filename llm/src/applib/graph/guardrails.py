@@ -14,6 +14,7 @@ from typing import Annotated, Optional
 from typing_extensions import TypedDict
 import logging
 import operator
+
 logger = logging.getLogger(__name__)
 
 class ValidationRoute(Enum):
@@ -30,7 +31,6 @@ class GuardrailState(TypedDict):
     max_rewrites: int
     channel: Channel
     # Metrics from structured output (evaluate node sets these)
-    is_english: Optional[bool]
     no_markdown: Optional[bool]
     is_concise: Optional[bool]
     no_pii: Optional[bool]
@@ -43,7 +43,6 @@ def entry_passthrough(state: GuardrailState) -> dict:
 
 
 _METRIC_LABELS: list[tuple[str, str]] = [
-    ("is_english", "Not in English"),
     ("no_markdown", "Uses markdown"),
     ("is_concise", "Not concise"),
     ("no_pii", "Contains PII"),
@@ -67,14 +66,8 @@ def _all_metrics_passed_from_state(state: GuardrailState) -> bool:
 
 
 async def _evaluate_response(state: GuardrailState, channel_suffix: str) -> dict:
-    """Evaluate whether the assistant response is appropriate, needs change, or is acceptable.
+    """Evaluate whether the assistant response is appropriate, needs change, or is acceptable."""
 
-    Possible failures by line (guarded or assumed):
-    - channel_prompts: AttributeError if channel_suffix not in ("sms", "web"); callers use only those.
-    - .system / .user: AttributeError if prompt files missing; ensured by TextStore layout.
-    - user_template.format(...): KeyError if state missing "user_query" or "response_to_check"; caller supplies GuardrailState with both.
-    - llm.ainvoke(messages): can return None when Bedrock structured-output parsing fails → guarded below with fail-safe default.
-    """
     channel_prompts = getattr(prompts.guardrails.evaluate_response, channel_suffix)
     system_content = channel_prompts.system
     structured_output_node = getattr(channel_prompts, "structured_output", None)
@@ -99,37 +92,19 @@ async def _evaluate_response(state: GuardrailState, channel_suffix: str) -> dict
 
     messages = [SystemMessage(content=system_content), HumanMessage(content=user_content)]
 
-    # with_structured_output(GuardrailEvaluation) can return None when Bedrock parsing fails
-    # (e.g. no tool call, invalid JSON, or model doesn't support the tool path). Guard before any use.
-    result: Optional[GuardrailEvaluation] = await llm.ainvoke(messages)
-    logger.info(f"Guardrail result: {result}")
-    if result is None:
-        logger.warning(
-            "Guardrail evaluate_response: LLM returned None (structured output parse failed). "
-            "Using fail-safe defaults (all metrics False). channel_suffix=%s model_id=%s",
-            channel_suffix,
-            model_id,
-        )
-        result = GuardrailEvaluation(
-            is_english=False,
-            no_markdown=False,
-            is_concise=False,
-            no_pii=False,
-            no_payment_promises=False,
-            is_appropriate=False,
-        )
+    result: GuardrailEvaluation = await llm.ainvoke(messages)
+    logger.info(f"Guardrail evaluation result: {result}")
 
-    result_flags: GuardrailState = {k: getattr(result, k) for k, _ in _METRIC_LABELS}
-    if not _all_metrics_passed_from_state(result_flags):
-        failed = _issues_from_state(result_flags)
-        logger.info(
-            "Guardrail: response needs rewrite (%s metric(s) failed): %s",
-            len(failed),
-            failed[:5] if len(failed) > 5 else failed,
-        )
+    # result_flags: GuardrailState = {k: getattr(result, k) for k, _ in _METRIC_LABELS}
+    # if not _all_metrics_passed_from_state(result_flags):
+    #     failed = _issues_from_state(result_flags)
+    #     logger.info(
+    #         "Guardrail: response needs rewrite (%s metric(s) failed): %s",
+    #         len(failed),
+    #         failed[:5] if len(failed) > 5 else failed,
+    #     )
 
     return {
-        "is_english": result.is_english,
         "no_markdown": result.no_markdown,
         "is_concise": result.is_concise,
         "no_pii": result.no_pii,

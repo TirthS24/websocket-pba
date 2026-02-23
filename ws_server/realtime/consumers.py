@@ -14,10 +14,31 @@ import json
 import re
 import uuid
 from typing import Any, Dict, Optional
-
 from channels.generic.websocket import AsyncWebsocketConsumer
+from django.conf import settings
 
 from .presence import list_connections, remove_connection, refresh_connection, upsert_connection
+
+
+def _get_header(scope: dict, name: str) -> Optional[str]:
+    """Get first header value from ASGI scope (header names are lowercased)."""
+    want = name.lower().encode("ascii")
+    for key, value in scope.get("headers") or []:
+        if key == want:
+            return value.decode("utf-8", errors="replace").strip()
+    return None
+
+
+def _get_api_key_from_scope(scope: dict) -> Optional[str]:
+    """Get API key from X-API-KEY header or from Sec-WebSocket-Protocol subprotocols (browser clients)."""
+    provided = _get_header(scope, "x-api-key")
+    if provided:
+        return provided
+    # Browser WebSocket API cannot set custom headers; FE can pass key via subprotocols: ['x-api-key', key]
+    subprotocols = scope.get("subprotocols") or []
+    if len(subprotocols) >= 2 and (subprotocols[0] or "").strip().lower() == "x-api-key":
+        return ",".join((s or "").strip() for s in subprotocols[1:]).strip() or None
+    return None
 
 
 class SessionConsumer(AsyncWebsocketConsumer):
@@ -57,10 +78,21 @@ class SessionConsumer(AsyncWebsocketConsumer):
         return f"session.{safe}"
 
     async def connect(self) -> None:
+        # API key auth: when AUTH_API_KEY is set, require X-API-KEY header or subprotocol (browser).
+        auth_key = getattr(settings, "AUTH_API_KEY", None) or None
+        if auth_key:
+            provided = _get_api_key_from_scope(self.scope)
+            if not provided or provided != auth_key:
+                # Reject connection before accept(); server will close the connection.
+                return
+
         self.session_id = self.scope["url_route"]["kwargs"]["session_id"]
         self.group_name = self._group_name(self.session_id)
 
-        await self.accept()
+        # If client used subprotocols for API key, accept with first subprotocol so handshake is valid
+        subprotocols = self.scope.get("subprotocols") or []
+        subprotocol = subprotocols[0] if subprotocols else None
+        await self.accept(subprotocol=subprotocol)
 
         # Join the session group so this socket receives broadcasts for session_id
         # across all instances (Redis channel layer fan-out).

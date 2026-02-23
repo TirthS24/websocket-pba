@@ -5,19 +5,21 @@ from applib.models.api import ChatRequest, EndEvent, ErrorEvent, EscalationEvent
 from applib.prompts.templates import JinjaEnvironments
 from applib.helpers import get_utc_now, message_content_str
 from applib.prompts import prompts
+from applib.state import State
 from applib.textcontent import static_messages
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 from langchain_core.messages import AnyMessage, HumanMessage, SystemMessage
 from typing import AsyncGenerator, Any
 from applib.graph.tracing import traced_astream_events, traced_ainvoke
-import uuid
+import hashlib
 import json
+import uuid
 
 router = APIRouter()
 
 
-def create_state_from_chat_request(request: ChatRequest) -> dict:
+def create_state_from_chat_request(request: ChatRequest) -> State:
     """Build initial graph state from a ChatRequest.
 
     Message is stored as-is (no invoice in user message) so history/summary stay clean.
@@ -26,36 +28,51 @@ def create_state_from_chat_request(request: ChatRequest) -> dict:
     """
     state = {
         "thread_id": request.thread_id,
-        "messages": [HumanMessage(content=request.message, additional_kwargs={"timestamp": get_utc_now()})],
+        "messages": [
+            HumanMessage(
+                content=request.message,
+                id=str(uuid.uuid4()),
+                additional_kwargs={"timestamp": get_utc_now()},
+            )
+        ],
         "channel": request.channel,
     }
-    if getattr(request, "invoice", None) is not None:
-        state["invoice"] = request.invoice
-    if getattr(request, "stripe_link", None):
-        state["stripe_link"] = request.stripe_link
-    if getattr(request, "webapp_link", None):
-        state["webapp_link"] = request.webapp_link
+    
+    optional_attributes = (
+        "invoice",
+        "stripe_payment_link",
+        "webapp_link",
+    )
+
+    for attribute in optional_attributes:
+        if (value := getattr(request, attribute, None)) is not None:
+            state[attribute] = value
 
     return state
 
 
-def create_state_from_sms_request(request: SmsChatRequest) -> dict:
+def create_state_from_sms_request(request: SmsChatRequest) -> State:
     """Build initial graph state for POST /chat/sms (channel=SMS, invoice optional)."""
     state = {
         "thread_id": request.thread_id,
-        "messages": [HumanMessage(content=request.message, additional_kwargs={"timestamp": get_utc_now()})],
+        "messages": [
+            HumanMessage(
+                content=request.message,
+                id=str(uuid.uuid4()),
+                additional_kwargs={"timestamp": get_utc_now()},
+            )
+        ],
         "channel": Channel.SMS,
+        "webapp_link": request.webapp_link,
     }
-    if getattr(request, "invoice", None) is not None:
-        state["invoice"] = request.invoice
     return state
 
 
 def get_message_post_script_for_channel(channel: Channel, webapp_link: str = "") -> str:
     """Return the message_post_script static text for the given channel (from static_messages)."""
-    if channel == Channel.SMS:
-        return static_messages.message_post_script.sms
-    text = static_messages.message_post_script.web
+    if channel == Channel.WEB:
+        return static_messages.message_post_script.web
+    text = static_messages.message_post_script.sms
     if "{LINK_TO_WEBAPP}" in text and webapp_link:
         text = text.replace("{LINK_TO_WEBAPP}", webapp_link)
     return text
@@ -202,47 +219,103 @@ async def generate_stream_events(request: ChatRequest) -> AsyncGenerator[dict[st
         yield {"type": "end", "content": ""}
 
 
-async def get_message_history(thread_id: str) -> list[AnyMessage]:
+async def get_message_history(
+    thread_id: str,
+) -> list[tuple[AnyMessage, str | None]]:
+    """Load message history for a thread with checkpoint_id per message.
 
+    Iterates state history (newest snapshot first). Messages that first appear in a
+    given snapshot are assigned that snapshot's configurable['checkpoint_id'].
+    Returns list of (message, checkpoint_id) in chronological order (oldest first).
+    checkpoint_id may be None for a snapshot if not present (fallback used in caller).
+    """
     graph = await get_graph()
-    graph_config = {'configurable': {'thread_id': thread_id}}
+    graph_config = {"configurable": {"thread_id": thread_id}}
     history = graph.aget_state_history(graph_config)
 
-    all_messages: list[AnyMessage] = []
-
+    snapshots: list[tuple[str | None, list[AnyMessage]]] = []
     async for snapshot in history:
-        messages = snapshot.values['messages']
-        all_messages.extend(messages)
-        break
+        configurable = (snapshot.config or {}).get("configurable") or {}
+        checkpoint_id: str | None = configurable.get("checkpoint_id")
+        messages = snapshot.values.get("messages") or []
+        snapshots.append((checkpoint_id, messages))
 
-    return all_messages
+    if not snapshots:
+        return []
+
+    # Newest snapshot first. Messages added at step i are snapshot[i].messages[len(snapshot[i+1].messages):].
+    # Use checkpoint_id for the first message at each step; use None for others so fallback gives unique ids.
+    ordered: list[tuple[AnyMessage, str | None]] = []
+    for i in range(len(snapshots)):
+        cid, msgs = snapshots[i]
+        prev_len = len(snapshots[i + 1][1]) if i + 1 < len(snapshots) else 0
+        for k, j in enumerate(range(prev_len, len(msgs))):
+            # One message per step gets checkpoint_id; rest get None to avoid duplicate ids
+            use_cid = cid if k == 0 else None
+            ordered.append((msgs[j], use_cid))
+    # Reverse so chronological (oldest first)
+    ordered.reverse()
+    return ordered
 
 
 async def chat_sms_invoke(request: SmsChatRequest) -> str:
-    """Run graph for SMS chat (non-streaming) and return the final AI response text."""
-    graph = await get_graph()
+    """Run graph for SMS chat via stream events and return the full response text.
+
+    Reuses the same streaming logic as generate_stream_events: collect content from
+    on_chain_stream for SMS nodes. The graph substitutes {LINK_TO_WEBAPP} in
+    static messages at execution time. Returns the entire AI message plus static
+    post_script in one string for the REST response.
+    """
     graph_config = {"configurable": {"thread_id": request.thread_id}}
     input_state = create_state_from_sms_request(request)
-    result = await graph.ainvoke(input_state, config=graph_config)
-    messages = result.get("messages") or []
-    # Last message is the AI response
-    for msg in reversed(messages):
-        if getattr(msg, "type", None) == "ai":
-            return message_content_str(msg)
-    return ""
+    token_parts: list[str] = []
+
+    try:
+        graph = await get_graph()
+        async for event in traced_astream_events(graph, input_state, graph_config, version="v2"):
+            event_type = event.get("event")
+            node_name = event.get("name")
+
+            if event_type != "on_chain_stream":
+                continue
+
+            chunk = event.get("data", {}).get("chunk", {})
+            text = _extract_text_from_chunk(chunk)
+            if not text:
+                continue
+
+            if node_name in ("sms_post_validate", "sms_append_ai_no_guardrail"):
+                token_parts.append(text)
+            elif node_name == "sms_escalation_request_respond":
+                token_parts.append(text)
+            elif node_name in ("sms_out_of_scope_respond", "sms_respond"):
+                token_parts.append(text)
+            elif node_name == "sms_message_post_script_respond":
+                token_parts.append(text)
+
+        return "\n\n".join(p for p in token_parts if p)
+    except Exception:
+        raise
 
 
-async def summarize_thread(thread_id: str) -> str:
-
+async def summarize_thread(thread_id: str, human_messages: str | None = None) -> str:
+    """Generate thread summary from message history and optional patient–operator messages."""
     llm = get_bedrock_converse_model(model_id=config.BEDROCK_MODEL_ID_THREAD_SUMMARIZE)
     jinja_env = JinjaEnvironments.thread
     template = jinja_env.get_template("chat_history.jinja")
-    message_history = await get_message_history(thread_id)
-    rendered_history = template.render(history=[m for m, _ in message_history])
+    message_history_with_ids = await get_message_history(thread_id)
+    message_history = [msg for msg, _ in message_history_with_ids]
+    rendered_history = template.render(history=message_history)
+    human_messages_text = human_messages.strip() if human_messages else ""
 
     messages = [
         SystemMessage(prompts.thread_summary.system),
-        HumanMessage(prompts.thread_summary.user.format(history=rendered_history))
+        HumanMessage(
+            prompts.thread_summary.user.format(
+                history=rendered_history,
+                human_messages=human_messages_text,
+            )
+        ),
     ]
 
     response = await traced_ainvoke(llm, messages)
@@ -266,14 +339,34 @@ async def session_connect(request: SessionConnectRequest) -> dict:
 async def summarize(request: SummarizeRequest) -> dict:
     return {
         "thread_id": request.thread_id,
-        "summary": await summarize_thread(request.thread_id)
+        "summary": await summarize_thread(request.thread_id, human_messages=request.human_messages),
     }
 
-def _message_to_history_item(msg: AnyMessage, previous_id: str | None) -> dict[str, Any]:
-    """Format a LangChain message to spec: type, content, id, sent_at, read_at, previous_message_id."""
-    msg_type = "user" if msg.type == "human" else "ai"
+def _stable_message_id(thread_id: str, index: int, content: str) -> str:
+    """Return a deterministic id for a message that has no id (e.g. from older checkpoints).
+    Same (thread_id, index, content) always yields the same id so thread history is stable across calls.
+    """
+    raw = f"{thread_id}:{index}:{content}"
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def _message_to_history_item(
+    msg: AnyMessage,
+    previous_id: str | None,
+    *,
+    message_id: str | None = None,
+    thread_id: str = "",
+    index: int = 0,
+) -> dict[str, Any]:
+    """Format a LangChain message to spec: type, content, id, sent_at, read_at, previous_message_id.
+    Prefers message_id (e.g. checkpoint_id from state history); else message.id; else deterministic
+    id from (thread_id, index, content) so IDs are stable across repeated /thread/history calls.
+    """
+    msg_type = "patient" if msg.type == "human" else "ai"
     content = message_content_str(msg)
-    msg_id = getattr(msg, "id", None) or str(uuid.uuid4())
+    msg_id = message_id or getattr(msg, "id", None)
+    if not msg_id:
+        msg_id = _stable_message_id(thread_id, index, content)
     # Prefer timestamp from message additional_kwargs (for thread history), else snapshot
     ts = getattr(msg, "additional_kwargs", None) or {}
     timestamp = (ts.get("timestamp") if isinstance(ts, dict) else None)
@@ -291,9 +384,22 @@ def _message_to_history_item(msg: AnyMessage, previous_id: str | None) -> dict[s
 async def thread_history(request: ThreadHistoryRequest) -> dict:
     history = await get_message_history(request.thread_id)
     previous_id: str | None = None
+    last_timestamp: str | None = None
     messages: list[dict[str, Any]] = []
-    for msg in history:
-        item = _message_to_history_item(msg, previous_id)
+    for index, (msg, checkpoint_id) in enumerate(history):
+        item = _message_to_history_item(
+            msg,
+            previous_id,
+            message_id=checkpoint_id,
+            thread_id=request.thread_id,
+            index=index,
+        )
+        # Fallback for AI messages without timestamp (e.g. from older checkpoints): use previous message's time
+        if item["type"] == "ai" and item["sent_at"] is None and last_timestamp is not None:
+            item["sent_at"] = last_timestamp
+            item["read_at"] = last_timestamp
+        if item["sent_at"] is not None:
+            last_timestamp = item["sent_at"]
         messages.append(item)
         previous_id = item["id"]
     return {"thread_id": request.thread_id, "messages": messages}

@@ -4,18 +4,17 @@ from pydantic import BaseModel, Field
 
 class SmsIntentClassification(BaseModel):
     intent: SmsIntent = Field(description=structured_outputs.intent_router.sms.field_descriptions.intent)
+    reasoning: str = Field(description=structured_outputs.intent_router.sms.field_descriptions.reasoning)
 
 class WebIntentClassification(BaseModel):
     intent: WebIntent = Field(description=structured_outputs.intent_router.web.field_descriptions.intent)
+    reasoning: str = Field(description=structured_outputs.intent_router.web.field_descriptions.reasoning)
 
 class GuardrailEvaluation(BaseModel):
     """
     Structured output for guardrail evaluation. Only metrics; no passes or issues.
     If any metric is false, the response is rewritten (issues for rewrite are derived from metrics in code).
     """
-    is_english: bool = Field(
-        description="True if the response's primary language is English and grammatically correct."
-    )
     no_markdown: bool = Field(
         description="True if the response uses plain text only (no markdown formatting)."
     )

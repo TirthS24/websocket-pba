@@ -19,5 +19,5 @@ class State(TypedDict):
     channel: Channel
     invoice: NotRequired[Optional[Invoice]]
     pending_ai_message: NotRequired[Optional[AnyMessage]]
-    stripe_link: NotRequired[Optional[str]]
+    stripe_payment_link: NotRequired[Optional[str]]
     webapp_link: NotRequired[Optional[str]]

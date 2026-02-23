@@ -1,0 +1,28 @@
+#
+# Production image: ws_server only (Django/Daphne on 8000).
+# Used for ECS Fargate; run alongside separate LLM container.
+#
+
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# System deps (minimal)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+# Install ws_server (Django/Channels/Daphne) dependencies
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -U pip && pip install --no-cache-dir -r /app/requirements.txt
+
+# Copy ws_server app code
+COPY ws_server/ /app/ws_server/
+ENV PYTHONPATH=/app/ws_server
+
+EXPOSE 8000
+
+CMD ["daphne", "-b", "0.0.0.0", "-p", "8000", "ws_server.asgi:application"]

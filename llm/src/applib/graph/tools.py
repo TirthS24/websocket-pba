@@ -16,7 +16,7 @@ def create_get_payment_link_tool(state: State) -> Callable:
         Returns:
             A message containing the payment link in <URL> tags.
         """
-        return f"The user can pay their bill at the url between the URL tags: <URL>{state.get('stripe_link') or ''}</URL>"
+        return f"The user can pay their bill at the url between the URL tags: <URL>{state.get('stripe_payment_link', '')}</URL>" # TODO: FALLBACK IF stripe_payment_link MISSING; PRACTICE HOMEPAGE?
 
     @tool
     def get_payment_link_tool_sms() -> str:
@@ -27,7 +27,7 @@ def create_get_payment_link_tool(state: State) -> Callable:
         Returns:
             A message containing the portal link in <URL> tags.
         """
-        return f"The user can visit the web portal and pay their bill at the url between the URL tags: <URL>{state['web_app_link']}</URL>"
+        return f"The user can visit the web portal and pay their bill at the url between the URL tags: <URL>{state.get('webapp_link', '')}</URL>" # TODO: FALLBACK IF webapp_link MISSING; PRACTICE HOMEPAGE?
 
 
     if state['channel'] == Channel.WEB:

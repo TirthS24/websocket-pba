@@ -14,6 +14,8 @@ import os
 from pathlib import Path
 from typing import List
 
+from corsheaders.defaults import default_headers as _cors_default_headers
+
 try:
     # Optional: allows local dev to load env vars from a `.env` file.
     # In production, prefer systemd EnvironmentFile or EC2 launch template env.
@@ -56,6 +58,8 @@ ALLOWED_HOSTS = _env_csv("DJANGO_ALLOWED_HOSTS", default="localhost,127.0.0.1")
 # CORS: allow requests from frontend (e.g. React on localhost:3000)
 CORS_ALLOWED_ORIGINS = _env_csv("CORS_ALLOWED_ORIGINS", default="http://localhost:3000,http://127.0.0.1:3000")
 CORS_ALLOW_CREDENTIALS = True
+# Allow X-API-KEY so preflight includes Access-Control-Allow-Headers: x-api-key
+CORS_ALLOW_HEADERS = list(_cors_default_headers) + ["x-api-key"]
 
 # CSRF: trust origins for cookie-based CSRF (e.g. frontend on localhost:3000)
 CSRF_TRUSTED_ORIGINS = _env_csv("CSRF_TRUSTED_ORIGINS", default="http://localhost:3000,http://127.0.0.1:3000")
@@ -89,10 +93,15 @@ INSTALLED_APPS = [
     "realtime.apps.RealtimeConfig",
 ]
 
+# Order: CanonicalHost first (rewrite private-IP Host to ALB host), then API key auth,
+# then Health/CORS so both host rewrite and auth run before any other response.
 MIDDLEWARE = [
+    "ws_server.middleware.CanonicalHostMiddleware",
+    "ws_server.middleware.ApiKeyAuthMiddleware",
+    "ws_server.middleware.HealthCheckAllowHttpMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
-    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
@@ -188,6 +197,11 @@ LOGGING = {
     "root": {"handlers": ["console"], "level": _env("DJANGO_LOG_LEVEL", "INFO") or "INFO"},
 }
 
+# API key auth: if set, all HTTP and WebSocket endpoints (except /health/) require X-API-KEY header.
+AUTH_API_KEY = _env("AUTH_API_KEY", "").strip() or None
+
 # LLM service: used by POST /api/thread/connect to trigger LLM WebSocket connection
 LLM_SERVICE_URL = _env("LLM_SERVICE_URL", "").rstrip("/")  # e.g. http://llm:8000
+# Optional: Bearer token or API key sent to LLM when calling from ws_server (required if LLM/ALB expects Authorization)
+LLM_SERVICE_AUTH = _env("LLM_SERVICE_AUTH", "").strip() or None
 WS_SERVER_URL = _env("WS_SERVER_URL", "").rstrip("/")  # e.g. ws://localhost:8000

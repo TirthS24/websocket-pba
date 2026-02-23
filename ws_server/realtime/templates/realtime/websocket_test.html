@@ -165,6 +165,8 @@
 
   <script>
     (function () {
+      const API_KEY = 'pba_live_X6FnNRDFH75rzQ08tW5jkchIbqHcwyyj';
+
       function baseUrl() {
         const b = document.getElementById('base').value.trim();
         return b || (window.location.origin);
@@ -177,6 +179,12 @@
       }
       function apiUrl(path) {
         return baseUrl() + path;
+      }
+      function apiHeaders() {
+        return {
+          'Content-Type': 'application/json',
+          'X-API-KEY': API_KEY
+        };
       }
       function threadId() {
         return document.getElementById('threadId').value.trim() || 'test-session-1';
@@ -203,7 +211,7 @@
         try {
           const r = await fetch(apiUrl('/api/thread/connect/'), {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: apiHeaders(),
             body: JSON.stringify({ thread_id: threadId() })
           });
           const data = await r.json().catch(() => ({}));
@@ -225,9 +233,12 @@
 
       // ---- User A WebSocket ----
       let wsA = null;
+      // Browser WebSocket API cannot set custom headers; we pass X-API-KEY via Sec-WebSocket-Protocol
+      // subprotocols: ['x-api-key', API_KEY] so the server can read the key from the handshake.
       function connectUser(which) {
         const id = threadId();
-        const url = wsUrl('/ws/session/' + encodeURIComponent(id) + '/');
+        const path = '/ws/session/' + encodeURIComponent(id) + '/';
+        const url = wsUrl(path);
         const userSelect = document.getElementById(which === 'A' ? 'userAType' : 'userBType');
         const userType = userSelect.value;
         const statusEl = document.getElementById(which === 'A' ? 'statusA' : 'statusB');
@@ -238,7 +249,7 @@
         if (which === 'A' && wsA) return;
         if (which === 'B' && wsB) return;
         log('User ' + which + ' connecting to ' + url, 'sys');
-        const ws = new WebSocket(url);
+        const ws = new WebSocket(url, ['x-api-key', API_KEY]);
         ws.onopen = function () {
           statusEl.textContent = 'Connected, sending hello...';
           statusEl.className = 'status';
@@ -335,7 +346,7 @@
         try {
           const r = await fetch(apiUrl('/api/thread/history/'), {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: apiHeaders(),
             body: JSON.stringify({ thread_id: threadId() })
           });
           const data = await r.json().catch(() => ({}));
@@ -352,7 +363,7 @@
         try {
           const r = await fetch(apiUrl('/api/thread/summarize/'), {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: apiHeaders(),
             body: JSON.stringify({ thread_id: threadId() })
           });
           const data = await r.json().catch(() => ({}));

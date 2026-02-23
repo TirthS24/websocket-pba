@@ -1,3 +1,4 @@
+from applib.code_guidance import add_guidance_to_claim_adjustments
 from applib.config import config
 from applib.graph.structured_outputs import SmsIntentClassification, WebIntentClassification
 from applib.graph.guardrails import get_guardrail_graph, GuardrailState
@@ -10,10 +11,11 @@ from applib.state import State
 from applib.textcontent import static_messages, structured_outputs
 from applib.types import Channel, SmsIntent, WebIntent
 from functools import partial
-# from langchain_aws import ChatBedrockConverse
+from langchain_aws import ChatBedrockConverse
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.graph import StateGraph, START, END
 import logging
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +41,8 @@ async def sms_intent_router(state: State) -> SmsIntent:
         )
 
         system_content = [
-            {'type': 'text', 'text': structured_outputs.intent_router.system},
-            # ChatBedrockConverse.create_cache_point()
+            {'type': 'text', 'text': prompts.intent_router.sms.system},
+            ChatBedrockConverse.create_cache_point()
         ]
 
         messages = [
@@ -48,8 +50,10 @@ async def sms_intent_router(state: State) -> SmsIntent:
             *state['messages'][-3:]
         ]
 
-        response: SmsIntentClassification = await llm.ainvoke(messages)
-        return SmsIntent(response.intent)
+        response = await llm.ainvoke(messages)
+        if response is not None:
+            return SmsIntent(response.intent)
+        return SmsIntent.OUT_OF_SCOPE
     except Exception as e:
         logger.warning("SMS intent router failed, falling back to out_of_scope: %s", e, exc_info=True)
         return SmsIntent.OUT_OF_SCOPE
@@ -62,19 +66,19 @@ async def web_intent_router(state: State) -> WebIntent:
             .with_structured_output(WebIntentClassification)
         )
         system_content = [
-            {'type': 'text', 'text': structured_outputs.intent_router.system},
-            # ChatBedrockConverse.create_cache_point()
+            {'type': 'text', 'text': prompts.intent_router.web.system},
+            ChatBedrockConverse.create_cache_point()
         ]
 
         messages = [
             SystemMessage(content=system_content),
             *state['messages'][-3:]
         ]
-        logger.info(f"Web intent router messages: {messages}")
 
-        response: WebIntentClassification = await llm.ainvoke(messages)
-        logger.info("Web intent router response: %s", response)
-        return WebIntent(response.intent)
+        response = await llm.ainvoke(messages)
+        if response is not None:
+            return WebIntent(response.intent)
+        return WebIntent.OUT_OF_SCOPE
     except Exception as e:
         logger.warning("Web intent router failed, falling back to out_of_scope: %s", e, exc_info=True)
         return WebIntent.OUT_OF_SCOPE
@@ -139,7 +143,7 @@ async def sms_respond(state: State) -> dict:
 
         system_content = [
             {'type': 'text', 'text': prompts.respond.sms.system},
-            # ChatBedrockConverse.create_cache_point()
+            ChatBedrockConverse.create_cache_point()
         ]
 
         messages = [
@@ -148,16 +152,13 @@ async def sms_respond(state: State) -> dict:
             ]
 
         response = await llm.ainvoke(messages)
-        if response.additional_kwargs is None:
-            response.additional_kwargs = {}
-        response.additional_kwargs["timestamp"] = get_utc_now()
         return {"pending_ai_message": response}
 
     except Exception as e:
         logger.warning("SMS respond failed, falling back to out_of_scope: %s", e, exc_info=True)
         fallback = static_messages.out_of_scope.sms
         return {
-            "messages": [AIMessage(content=[{"type": "text", "text": fallback}], additional_kwargs={"timestamp": get_utc_now()})],
+            "messages": [AIMessage(content=[{"type": "text", "text": fallback}], id=str(uuid.uuid4()), additional_kwargs={"timestamp": get_utc_now()})],
             "pending_ai_message": None,
         }
 
@@ -172,31 +173,43 @@ async def web_respond(state: State) -> dict:
             .bind_tools([get_payment_link_tool])
         )
 
-        jinja_env = JinjaEnvironments.claim
-        template = jinja_env.get_template('claim.jinja')
-        claim_rendered = template.render(claim=state['invoice'].claims[0])
-
         system_content = [
             {'type': 'text', 'text': prompts.respond.web.system},
-            # ChatBedrockConverse.create_cache_point(),
-            {'type': 'text', 'text': f'Supporting Data:<SUPPORTING_DATA>{claim_rendered}</SUPPORTING_DATA>'},
+            ChatBedrockConverse.create_cache_point(),
         ]
+
+        if getattr(state, "invoice", None) is not None:
+
+            for claim in state['invoice'].claims:
+                add_guidance_to_claim_adjustments(claim)
+
+            template = JinjaEnvironments.invoice_xml.get_template('invoice.jinja')
+            invoice_rendered = template.render(
+                invoice=state['invoice'],
+                render_patient=False,
+                render_practice=True,
+                render_payments=False,
+                render_services=True,
+                render_adjustments=True
+            )
+            system_content.append({
+                'type': 'text',
+                'text': f'Invoice Data:\n\n{invoice_rendered}\n</system>'
+            })
 
         messages = [
             SystemMessage(content=system_content),
             *state['messages'][-10:]
         ]
         response = await llm.ainvoke(messages)
-        if response.additional_kwargs is None:
-            response.additional_kwargs = {}
-        response.additional_kwargs["timestamp"] = get_utc_now()
+
         return {"pending_ai_message": response}
 
     except Exception as e:
         logger.warning("Web respond failed, falling back to out_of_scope: %s", e, exc_info=True)
         fallback = static_messages.out_of_scope.web
         return {
-            "messages": [AIMessage(content=[{"type": "text", "text": fallback}], additional_kwargs={"timestamp": get_utc_now()})],
+            "messages": [AIMessage(content=[{"type": "text", "text": fallback}], id=str(uuid.uuid4()), additional_kwargs={"timestamp": get_utc_now()})],
             "pending_ai_message": None,
         }
 
@@ -237,18 +250,16 @@ async def post_validate(state: State) -> dict:
         }
 
         result = await guardrail_graph.ainvoke(guardrail_state, config=guardrail_config)
-        logger.info("Post-validate (guardrail) result: %s", result)
         validated_response = result.get("validated_response", "")
-        logger.info("Validated response: %s", validated_response)
         return {
-            "messages": [AIMessage(content=[{"type": "text", "text": validated_response}], additional_kwargs={"timestamp": get_utc_now()})],
+            "messages": [AIMessage(content=[{"type": "text", "text": validated_response}], id=str(uuid.uuid4()), additional_kwargs={"timestamp": get_utc_now()})],
             "pending_ai_message": None,
         }
     except Exception as e:
         logger.warning("Post-validate (guardrail) failed, falling back to out_of_scope: %s", e, exc_info=True)
         fallback = _out_of_scope_fallback_for_channel(channel)
         return {
-            "messages": [AIMessage(content=[{"type": "text", "text": fallback}], additional_kwargs={"timestamp": get_utc_now()})],
+            "messages": [AIMessage(content=[{"type": "text", "text": fallback}], id=str(uuid.uuid4()), additional_kwargs={"timestamp": get_utc_now()})],
             "pending_ai_message": None,
         }
 
@@ -260,7 +271,7 @@ async def append_ai_no_guardrail(state: State) -> dict:
         return {}
     text = message_content_str(pending)
     return {
-        "messages": [AIMessage(content=[{"type": "text", "text": text}], additional_kwargs={"timestamp": get_utc_now()})],
+        "messages": [AIMessage(content=[{"type": "text", "text": text}], id=str(uuid.uuid4()), additional_kwargs={"timestamp": get_utc_now()})],
         "pending_ai_message": None,
     }
 
@@ -268,15 +279,22 @@ async def append_ai_no_guardrail(state: State) -> dict:
 async def _static_respond(state: State, static_message: str) -> dict:
     """Emit a static message as if it were coming from an LLM call.
 
+    Replaces {LINK_TO_WEBAPP} with state.webapp_link when present, so the
+    graph emits the final text and no replacement is needed at API response time.
+
     Args:
         state: The current graph state
-        static_message: The static text to emit as an AI response
+        static_message: The static text to emit as an AI response (may contain {LINK_TO_WEBAPP})
 
     Returns:
         State update with the static message wrapped in an AIMessage
     """
+    text = static_message
+    webapp_link = state.get("webapp_link") or ""
+    if webapp_link and "{LINK_TO_WEBAPP}" in text:
+        text = text.replace("{LINK_TO_WEBAPP}", webapp_link)
     return {
-        'messages': [AIMessage(content=[{'type': 'text', 'text': static_message}], additional_kwargs={"timestamp": get_utc_now()})]
+        "messages": [AIMessage(content=[{"type": "text", "text": text}], id=str(uuid.uuid4()), additional_kwargs={"timestamp": get_utc_now()})]
     }
 
 

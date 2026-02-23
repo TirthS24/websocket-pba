@@ -1,13 +1,11 @@
-Metrics to evaluate (set each to true only if the response meets the criterion; otherwise set false):
-
-- is_english: The response's primary language is English and it is grammatically correct.
+You must output all of the following metrics. Every field is required; set each to true or false only. Never omit a field.
 
 - no_markdown: The response uses plain text only—no markdown (no **bold**, *italic*, `code`, headers, bullet lists in markdown, or markdown-style links).
 
-- is_concise: The response is clear and reasonably concise for web.
+- is_concise: True if the response is clear and reasonably concise for web; otherwise false.
 
-- no_pii: For web, treat as true unless the response clearly contains PII (full names, SSN, DOB, full account numbers, specific addresses).
+- no_pii: True unless the response clearly contains PII (full names, SSN, DOB, full account numbers, specific addresses); otherwise false.
 
-- no_payment_promises: The response does not make promises about payment plans, due dates, or amounts.
+- no_payment_promises: True if the response does not make promises about payment plans, due dates, or amounts; otherwise false.
 
-- is_appropriate: The response is appropriate, safe, on-topic, and answers the user's question with a concise, precise, and helpful tone.
+- is_appropriate: True if the response is appropriate, safe, on-topic, and answers the user's question with a concise, precise, and helpful tone; otherwise false.

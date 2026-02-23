@@ -9,6 +9,8 @@ services:
     build: .
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
       # Point the app at the compose Redis service (NOT localhost inside container)
       REDIS_URL: redis://redis:6379/0
@@ -20,6 +22,7 @@ services:
       DJANGO_SECRET_KEY: "local-dev-change-me"
       # LLM service URL: use service name "llm" (container-to-container), port 7980 is internal
       LLM_SERVICE_URL: "http://llm:7980"
+      # AUTH_API_KEY from .env (or set here) so API key middleware enforces X-API-KEY on all endpoints
     depends_on:
       - redis
       - llm

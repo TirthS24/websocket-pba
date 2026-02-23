@@ -4,4 +4,4 @@ User query:
 Assistant response to evaluate:
 {response_to_check}
 
-Evaluate the assistant response against the metrics. Output only the structured object with exactly these six boolean fields: is_english, no_markdown, is_concise, no_pii, no_payment_promises, is_appropriate. Each must be true or false.
+Evaluate the assistant response against the metrics. You must return the full structured output with every required metric (no_markdown, is_concise, no_pii, no_payment_promises, is_appropriate). Set each to true or false. Do not omit any field.

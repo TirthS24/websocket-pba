@@ -1,7 +1,10 @@
 from .code import CodeGuidance
 from applib.helpers import redact_string
 from pydantic import BaseModel, AfterValidator
-from typing import Annotated, List, Optional
+from typing import Annotated, List, Literal, Optional
+
+from .payment import Payment
+
 
 # === ClaimStatus ===
 # Represents the claim status section (from the 835 file).
@@ -15,23 +18,29 @@ class ClaimStatus(BaseModel):
 # === RenderingProvider ===
 # Represents the rendering provider section (from the 835 file).
 class RenderingProvider(BaseModel):
-    first_name: str
-    last_name: str
-    identification_code_qualifier: str
-    identification_code: str
+    first_name: Optional[str | None] = None
+    last_name: Optional[str | None] = None
+    identification_code_qualifier: Optional[str | None] = None
+    identification_code: Optional[str | None] = None
 
 
 # === Adjustment ===
 # Represents a single adjustment entry on a service line.
 class Adjustment(BaseModel):
     id: int
-    identifier: Optional[str] = None
+    identifier: str
     group_code: str
-    group_code_description: Optional[str] = None
+    group_code_description: str
     reason_code: str
-    reason_code_description: Optional[str] = None
+    reason_code_description: str
     amount: float
     guidance: Optional[CodeGuidance] = None
+
+    @property
+    def responsibility(self) -> Literal['insurance', 'patient']:
+        if self.group_code.upper() == 'PR':
+            return 'patient'
+        return 'insurance'
 
 
 # === Service ===
@@ -60,6 +69,10 @@ class Service(BaseModel):
     def patient_responsibility_adjustments(self) -> List[Adjustment]:
         return list(filter(lambda x: x.group_code == 'PR', self.adjustments))
 
+    @property
+    def has_adjustments(self):
+        return bool(self.adjustments)
+
 
 # === Claim835Data ===
 # Represents claim-level information from the 835 file.
@@ -74,13 +87,16 @@ class Claim835Data(BaseModel):
     total_allowed_amount: float
     total_paid_amount: float
     total_balance: float
-    payment_effective_date: Optional[str] = None
+    payment_effective_date: str
     claim_statement_period_start: Optional[str] = None
     claim_statement_period_end: Optional[str] = None
     rendering_provider: Optional[RenderingProvider] = None
     status: Optional[ClaimStatus] = None
     services: List[Service]
 
+    @property
+    def has_adjustments(self) -> bool:
+        return any(map(lambda x: x.has_adjustments, self.services))
 
 # === ClaimDBData ===
 # Represents claim-level data enriched or tracked internally in the database.
@@ -90,17 +106,24 @@ class Claim(BaseModel):
     total_due: float
     total_fee: float
     total_paid: float
-    total_manual_paid: Optional[float] = None
-    total_network_discount: Optional[float] = None
-    total_insurance: Optional[float] = None
-    total_resolved_amount: Optional[float] = None
-    resolved_at: Optional[str] = None
-    provider_name: Optional[str] = None
+    total_manual_paid: float
+    total_network_discount: float
+    total_insurance: float
+    total_resolved_amount: float
+    resolved_at: Optional[str]
+    provider_name: Optional[str]
     is_resolved_as_not_present: Optional[str | bool] = None
-    # FE/API often send a simpler claim (no EDI); optional so Invoice validates from WebSocket payload.
-    edi_mappings: Optional[List[Claim835Data]] = None
-    adjustments: Optional[List[Adjustment]] = None
+    edi_mappings: Optional[List[Claim835Data]] = [] # Need to make it mandatory later
+    adjustments: Optional[List[Adjustment]] = []
+    payments: Optional[List[Payment]] = []
 
+    @property
+    def has_service_level_adjustments(self) -> bool:
+        """
+        Checks edi data for service-level adjustments toward gracefully falling back to claim-level adjustments
+        """
 
-
-
+        for claim_835 in self.edi_mappings:
+            if claim_835.has_adjustments:
+                return True
+        return False

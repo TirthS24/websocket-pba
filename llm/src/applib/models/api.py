@@ -8,13 +8,13 @@ class ChatRequest(BaseModel):
     thread_id: str
     channel: Channel
     invoice: Optional[Invoice] = None
-    stripe_link: Optional[str] = None
+    stripe_payment_link: Optional[str] = None
     webapp_link: Optional[str] = None
 
     @model_validator(mode="after")
     def validate_conditional_fields(self) -> "ChatRequest":
-        if self.invoice is not None and self.stripe_link is None:
-            raise ValidationError("stripe_link is required when invoice is provided")
+        if self.invoice is not None and self.stripe_payment_link is None:
+            raise ValidationError("stripe_payment_link is required when invoice is provided")
         if self.channel == Channel.SMS and self.webapp_link is None:
             raise ValidationError("webapp_link is required when channel is 'sms'")
         return self
@@ -23,7 +23,8 @@ class ThreadRequest(BaseModel):
     thread_id: str
 
 class SummarizeRequest(ThreadRequest):
-    pass
+    """Optional messages between patient and operator (human–human). When present, included in summary context."""
+    human_messages: Optional[str] = None
 
 class ThreadHistoryRequest(ThreadRequest):
     pass
@@ -47,7 +48,7 @@ class SmsChatRequest(BaseModel):
     """Request body for POST /chat/sms. Invoice is optional."""
     message: str
     thread_id: str
-    invoice: Optional[Invoice] = None
+    webapp_link: str
 
 class TokenEvent(BaseModel):
     """SSE token event for streaming response content"""

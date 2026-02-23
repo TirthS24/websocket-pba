@@ -10,4 +10,8 @@ bedrock_rt_client = client(
 )
 
 def get_bedrock_converse_model(**kwargs) -> ChatBedrockConverse:
-    return ChatBedrockConverse(client=bedrock_rt_client, **kwargs)
+    return ChatBedrockConverse(
+        client=bedrock_rt_client, 
+        provider="anthropic",
+        region_name=config.AWS_BEDROCK_REGION,
+        **kwargs)

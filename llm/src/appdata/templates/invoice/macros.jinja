@@ -103,6 +103,9 @@ Total Claim Balance: ${{ "%0.2f" | format(claim_835.total_balance | float) }}
 {% if claim_835.status.description %}
 Claim Status: {{ claim_835.status.description | capitalize }}
 {% endif %}
+{% if claim_835.status.payer_classification %}
+Claim Payer Classification: {{ claim_835.status.payer_classification }}
+{% endif %}
 {% endif %}
 {% if render_services is sameas true %}
 {% if claim_835.services %}
@@ -117,7 +120,6 @@ Claim Services:
 {% endif %}
 {% endif %}
 {% endmacro %}
-
 
 {# CLAIM #}
 {% macro render_claim(claim, render_services, render_adjustments, indent=0) %}
@@ -149,16 +151,114 @@ Total Insurance: ${{ "%0.2f" | format(claim.total_insurance | float) }}
 {% endif %}
 {% if claim.edi_mappings %}
 
-{{ '='*27 }}
-|| SUPPORTING CLAIM DATA ||
-{{ '='*27 }}
+{{ '='*31 }}
+|| SUPPORTING CLAIM 835 DATA ||
+{{ '='*31 }}
 {% filter indent(width=indent+2) +%}
 {% for claim_835 in claim.edi_mappings %}
+ {{ '-'*40 }} START OF CLAIM 835 {{ '-'*40 }}
 {{ render_835(claim_835=claim_835, render_services=render_services, render_adjustments=render_adjustments, indent=indent+2) }}
 {% if not loop.last %}
-{{ '-'*80 }}
+{{ '-'*40 }} END OF CLAIM 835 {{ '-'*40 }}
 {% endif %}
 {% endfor %}
 {% endfilter %}
 {% endif %}
+{% endmacro %}
+
+{# PAYMENT #}
+{% macro render_payment(payment) %}
+{% if payment.first_outreach_date %}
+First Outreach Date: {{ payment.first_outreach_date }}
+{% endif %}
+{% if payment.old_patient_fee is not none %}
+Original Charge Before Payments & Adjustments: ${{ "%0.2f" | format(payment.old_patient_fee | float) }}
+{% endif %}
+{% if payment.old_patient_network_discount is not none %}
+Insurance Network Discount: ${{ "%0.2f" | format(payment.old_patient_network_discount | float) }}
+{% endif %}
+{% if payment.old_patient_insurance is not none %}
+Insurance Paid: ${{ "%0.2f" | format(payment.old_patient_insurance | float) }}
+{% endif %}
+{% if payment.old_patient_paid is not none %}
+Previous Patient Payments: ${{ "%0.2f" | format(payment.old_patient_paid | float) }}
+{% endif %}
+{% if payment.payment_amount is not none %}
+This Payment Amount: ${{ "%0.2f" | format(payment.payment_amount | float) }}
+{% endif %}
+{% if payment.remaining_amount is not none %}
+Current Balance: ${{ "%0.2f" | format(payment.remaining_amount | float) }}
+{% endif %}
+{% if payment.external_transaction_at %}
+Payment Processed On: {{ payment.external_transaction_at | datetime_string_format }}
+{% endif %}
+{% if payment.payment_status %}
+Current Payment Status: {{ payment.payment_status }}
+{% endif %}
+{% if payment.payment_method %}
+Payment Method: {{ payment.payment_method }}
+{% endif %}
+{% endmacro %}
+
+{# PATIENT #}
+{% macro _render_patient(patient, indent=0) %}
+{% if patient.last_name and patient.last_name%}
+{% filter indent(width=indent)%}
+PATIENT INFO:
+{% endfilter %}
+{% filter indent(width=indent+2) %}
+Patient Name: {{ patient.last_name }}, {{ patient.first_name }}
+{% endfilter %}
+{% endif %}
+{% endmacro %}
+
+
+{# PRACTICE #}
+{% macro _render_practice(practice, indent=0) %}
+{% if practice.name %}
+{% filter indent(width=indent) %}
+PRACTICE INFO:
+{% endfilter %}
+{% filter indent(width=indent+2) %}
+Practice Name: {{ practice.name }}
+{% endfilter %}
+{% endif %}
+{% endmacro %}
+
+
+{# INVOICE #}
+{% macro render_invoice(invoice, render_patient, render_practice, render_payments, render_services, render_adjustments, indent=0) %}
+|============================================================|
+|************************************************************|
+|                           INVOICE                          |
+|************************************************************|
+|============================================================|
+
+{% if invoice.patient %}
+{{ _render_patient(invoice.patient, indent=indent+2) }}
+{% endif %}
+{% if invoice.practice %}
+{{ _render_practice(invoice.practice) }}
+{% endif %}
+{% if invoice.claims %}
+{% if invoice.total_fee != None %}
+**TOTAL CHARGED BY PROVIDER**: ${{ "%0.2f" | format(invoice.total_fee | float) }} (** AMOUNT CHARGED BY PROVIDER BEFORE INSURANCE ADJUSTMENTS**)
+{% endif %}
+{% if invoice.total_due != None %}
+**TOTAL DUE FROM PATIENT**: ${{ "%0.2f" | format(invoice.total_due | float) }} (** AMOUNT THAT PATIENT OWES **)
+{% endif %}
+================================================
+||                     CLAIMS                 ||
+================================================
+--------------------CLAIM START------------------
+{% for claim in invoice.claims %}
+{{ render_claim(claim, render_services, render_adjustments, indent+2) }}
+---------------------CLAIM END-------------------
+{% endfor %}
+{% endif %}
+|============================================================|
+|************************************************************|
+|                      END OF INVOICE                        |
+|************************************************************|
+|============================================================|
 {% endmacro %}

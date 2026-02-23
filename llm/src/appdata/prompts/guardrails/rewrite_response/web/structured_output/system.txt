@@ -1,7 +1,5 @@
 Rewrite instructions for each issue type (apply the fix for every reported issue):
 
-- Not in English: Rewrite so the response's primary language is English and is grammatically correct.
-
 - Uses markdown: Use plain text only; remove all markdown (no bold, italic, code, headers, or markdown lists/links).
 
 - Not concise: Make the response clear and reasonably concise.

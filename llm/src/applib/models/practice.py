@@ -7,6 +7,4 @@ class PracticeDetails(BaseModel):
     name: str
     email_address: Optional[str] = None
     phone_number: Optional[str] = None
-    hours: Optional[str] = None
-    work_start_time: Optional[str] = None
-    work_end_time: Optional[str] = None
+    hours: str

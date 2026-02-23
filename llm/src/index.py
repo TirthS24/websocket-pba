@@ -2,8 +2,9 @@ from dotenv import load_dotenv
 load_dotenv()
 from applib.graph.graph_manager import graph_manager
 from applib.api.routes import router
+from applib.config import config
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -35,6 +36,37 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Public paths excluded from authorization (O(1) lookup with set)
+PUBLIC_PATHS = {"/", "/health", "/health/"}
+
+def get_auth_header(request: Request) -> str | None:
+    """Extract Authorization header value (case-insensitive key lookup)."""
+    headers_lower = {k.lower(): v for k, v in request.headers.items()}
+    return headers_lower.get("x-api-key")
+
+def create_unauthorized_response(detail: str) -> JSONResponse:
+    """Create a 401 Unauthorized response."""
+    return JSONResponse(status_code=401, content={"detail": detail})
+
+def validate_authorization(auth_header: str | None) -> JSONResponse | None:
+    """Validate authorization header against API key. Returns error response or None if valid."""
+    if not auth_header:
+        return create_unauthorized_response("Authorization header missing")
+    if auth_header != config.AUTH_API_KEY:
+        return create_unauthorized_response("Invalid authorization key")
+    return None
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    """Authorization middleware to validate AUTH_API_KEY for protected routes."""
+    if request.url.path in PUBLIC_PATHS:
+        return await call_next(request)
+    
+    error_response = validate_authorization(
+        get_auth_header(request),
+    )
+    return error_response or await call_next(request)
+
 app.include_router(router)
 
 
@@ -63,8 +95,9 @@ async def root() -> dict[str, str]:
     }
 
 @app.get("/health")
+@app.get("/health/")
 async def health():
-    """Detailed health check"""
+    """Shared health response body."""
     return {
         'status': 'healthy',
         'graph_initialized': graph_manager.graph_initialized(),

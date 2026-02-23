@@ -51,6 +51,5 @@ def add_guidance_to_claim_adjustments(claim: Claim) -> None:
             for adjustment in service.adjustments:
                 add_guidance_to_adjustment(adjustment)
 
-
-
-
+    for adjustment in claim.adjustments:
+        add_guidance_to_adjustment(adjustment)

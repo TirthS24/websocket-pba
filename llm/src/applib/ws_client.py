@@ -46,6 +46,8 @@ async def _run_connection(thread_id: str) -> None:
     extra_headers: list[tuple[str, str]] = []
     if config.WS_SERVER_ORIGIN:
         extra_headers.append(("Origin", config.WS_SERVER_ORIGIN))
+    if getattr(config, "AUTH_API_KEY", None):
+        extra_headers.append(("X-API-KEY", config.AUTH_API_KEY))
 
     connect_kwargs: Dict[str, Any] = {}
     try:
@@ -116,7 +118,7 @@ async def _run_connection(thread_id: str) -> None:
                     except Exception as inv_err:
                         logger.warning("Invalid invoice in chat payload: %s", inv_err)
 
-                stripe_link = data.get("stripe_payment_link") or (data.get("invoice") or {}).get("stripe_payment_link")
+                stripe_payment_link = data.get("stripe_payment_link") or (data.get("invoice") or {}).get("stripe_payment_link")
                 webapp_link = data.get("web_app_link") or (data.get("invoice") or {}).get("web_app_link")
 
                 try:
@@ -125,7 +127,7 @@ async def _run_connection(thread_id: str) -> None:
                         message=message,
                         channel=channel,
                         invoice=invoice,
-                        stripe_link=stripe_link or "",
+                        stripe_payment_link=stripe_payment_link or "",
                         webapp_link=webapp_link or "",
                     )
                 except Exception as req_err:

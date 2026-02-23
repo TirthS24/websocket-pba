@@ -21,9 +21,9 @@ __all__ = ["traceable", "traced_astream_events", "traced_ainvoke"]
     For non-streaming endpoints, while generating summary, we need to trace the flow.
 """
 @traceable(name="chat_graph_invoke", run_type="chain")
-async def traced_ainvoke(graph: Any, input_state: dict, config: dict = {}) -> Any:
+async def traced_ainvoke(graph: Any, input_state: dict) -> Any:
     """Run graph.ainvoke under a single LangSmith trace (e.g. for sync/SSE-style endpoints)."""
-    return await graph.ainvoke(input_state, config=config)
+    return await graph.ainvoke(input_state)
 
 """
     For streaming endpoints, while performig chat conversation, we need to trace the flow.
