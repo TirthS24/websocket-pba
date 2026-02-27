@@ -1,10 +1,11 @@
-User query:
+<user_query>
 {user_query}
+</user_query>
 
-Current assistant response (to fix):
+<response_to_fix>
 {response_to_check}
+</response_to_fix>
 
-Issues to fix:
+<issues_to_fix>
 {issues}
-
-Rewrite the assistant response to address the issues above. Output only the new reply text, no markdown.
+</issues_to_fix>

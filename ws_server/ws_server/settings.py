@@ -49,13 +49,13 @@ if not DEBUG and (not SECRET_KEY or SECRET_KEY.startswith("dev-insecure-")):
 ALLOWED_HOSTS = _env_csv("DJANGO_ALLOWED_HOSTS", default="localhost,127.0.0.1")
 
 # CORS: allow requests from frontend (e.g. React on localhost:3000)
-CORS_ALLOWED_ORIGINS = _env_csv("CORS_ALLOWED_ORIGINS", default="http://localhost:3000,http://127.0.0.1:3000")
+# CORS_ALLOWED_ORIGINS = _env_csv("CORS_ALLOWED_ORIGINS", default="http://localhost:3000,http://127.0.0.1:3000,*")
 CORS_ALLOW_CREDENTIALS = True
 # Allow X-API-KEY so preflight includes Access-Control-Allow-Headers: x-api-key
 CORS_ALLOW_HEADERS = list(_cors_default_headers) + ["x-api-key"]
-
+CORS_ALLOW_ALL_ORIGINS = True
 # CSRF: trust origins for cookie-based CSRF (e.g. frontend on localhost:3000)
-CSRF_TRUSTED_ORIGINS = _env_csv("CSRF_TRUSTED_ORIGINS", default="http://localhost:3000,http://127.0.0.1:3000")
+CSRF_TRUSTED_ORIGINS = _env_csv("CSRF_TRUSTED_ORIGINS", default="http://localhost:3000,http://127.0.0.1:3000,https://devlive.app.mypatriotpay.com,https://devlive.app.mypatriotpay.com/,https://testlive.app.mypatriotpay.com,https://testlive.app.mypatriotpay.com/,https://app.mypatriotpay.com/,https://app.mypatriotpay.com")
 
 # When serving behind an ALB, Django must respect X-Forwarded-* headers.
 USE_X_FORWARDED_HOST = True

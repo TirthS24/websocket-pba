@@ -12,7 +12,7 @@ echo -e "${GREEN}Starting deployment process...${NC}"
 # Load environment variables from .env file
 # Use absolute path to handle directory changes later in the script
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ENV_FILE="${SCRIPT_DIR}/.env"
+ENV_FILE="${SCRIPT_DIR}/.env.devlive"
 if [ ! -f "$ENV_FILE" ]; then
     echo -e "${RED}Error: .env file not found at $ENV_FILE${NC}"
     exit 1
@@ -534,6 +534,69 @@ fi
 
 # Export Redis and ALB endpoints from stack outputs (for local use)
 export_stack_outputs "$STACK_NAME"
+
+# Sync RDS credentials into existing LLM secret pba-{env}/llm-server-secrets when stack has RDS
+sync_rds_secret_to_llm() {
+    local stack_name="$1"
+    local rds_arn
+    rds_arn=$(aws cloudformation describe-stacks \
+        --stack-name "$stack_name" \
+        --region "$AWS_REGION" \
+        --query 'Stacks[0].Outputs[?OutputKey==`RDSSecretArn`].OutputValue' \
+        --output text 2>/dev/null || echo "")
+    if [ -z "$rds_arn" ] || [ "$rds_arn" == "None" ]; then
+        return 0
+    fi
+    local llm_name="pba-${ENVIRONMENT:-devlive}/llm-server-secrets"
+    echo -e "${GREEN}Syncing RDS credentials to $llm_name...${NC}"
+    export RDS_SECRET_ARN="$rds_arn"
+    export LLM_SECRET_NAME="$llm_name"
+    export AWS_REGION
+    python3 << 'PYTHON'
+import json
+import os
+import subprocess
+import sys
+
+rds_arn = os.environ.get("RDS_SECRET_ARN")
+llm_name = os.environ.get("LLM_SECRET_NAME")
+region = os.environ.get("AWS_REGION", "us-east-2")
+if not rds_arn or not llm_name:
+    sys.exit(0)
+rds_out = subprocess.run(
+    ["aws", "secretsmanager", "get-secret-value", "--secret-id", rds_arn, "--region", region, "--query", "SecretString", "--output", "text"],
+    capture_output=True, text=True,
+)
+if rds_out.returncode != 0:
+    print("RDS secret not available yet, skipping sync", file=sys.stderr)
+    sys.exit(0)
+rds = json.loads(rds_out.stdout.strip())
+llm_out = subprocess.run(
+    ["aws", "secretsmanager", "get-secret-value", "--secret-id", llm_name, "--region", region, "--query", "SecretString", "--output", "text"],
+    capture_output=True, text=True,
+)
+llm = json.loads(llm_out.stdout.strip()) if llm_out.returncode == 0 and llm_out.stdout.strip() else {}
+llm["PSQL_BOT_USERNAME"] = rds.get("username", "")
+llm["PSQL_BOT_PASSWORD"] = rds.get("password", "")
+llm["PSQL_HOST"] = rds.get("host", "")
+llm["PSQL_PORT"] = str(rds.get("port", 5432))
+llm["PSQL_STATE_DATABASE"] = rds.get("dbname", "")
+llm.setdefault("PSQL_SSLMODE", "require")
+put_out = subprocess.run(
+    ["aws", "secretsmanager", "put-secret-value", "--secret-id", llm_name, "--region", region, "--secret-string", json.dumps(llm)],
+    capture_output=True, text=True,
+)
+if put_out.returncode != 0:
+    print(put_out.stderr, file=sys.stderr)
+    sys.exit(1)
+PYTHON
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}  ✓ RDS credentials synced to $llm_name${NC}"
+    else
+        echo -e "${YELLOW}  Warning: Could not sync RDS credentials (LLM secret may not exist yet)${NC}"
+    fi
+}
+sync_rds_secret_to_llm "$STACK_NAME"
 
 # Optional: update .env with Redis and ALB endpoints so local scripts stay in sync
 if [ -n "$REDIS_URL" ] || [ -n "$ALB_DNS" ] || [ -n "$LLM_ALB_DNS" ]; then

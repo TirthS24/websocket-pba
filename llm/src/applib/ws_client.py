@@ -3,7 +3,8 @@ WebSocket client that connects the LLM service to ws_server.
 
 - Connects to ws_server at /ws/session/<thread_id>/ with user_type "ai" so session_message shows AI responses as user_type "ai".
 - Listens for session_message with data.type == "chat" or "chat_message", runs the graph,
-  broadcasts token / escalation / end / error events.
+  broadcasts token / escalation / end / error events. Messages with data.request_for == "Agent"
+  (case-insensitive) are ignored and not sent to the LLM.
 - On should_escalate true, disconnects so the user can talk to another user (human agent).
 
 Use start_connection(thread_id) from the /session/connect endpoint; one connection per thread.
@@ -101,6 +102,10 @@ async def _run_connection(thread_id: str) -> None:
 
                 message = data.get("message") or ""
                 if not message:
+                    continue
+
+                # Ignore messages intended for human Agent (e.g. "Are you still here?" prompts)
+                if str(data.get("request_for") or "").strip().lower() == "agent":
                     continue
 
                 req_thread_id = (data.get("thread_id") or thread_id) or thread_id
@@ -223,6 +228,28 @@ async def start_connection(thread_id: str) -> bool:
         task = asyncio.create_task(_run_connection(thread_id))
         _active_tasks[thread_id] = task
 
+    return True
+
+
+async def stop_connection(thread_id: str) -> bool:
+    """
+    Stop the WebSocket connection for the given thread_id (e.g. when operator joins).
+    Cancels the background task so the LLM disconnects from the session.
+    Returns True if an active connection was stopped, False if none existed.
+    """
+    if not (thread_id and thread_id.strip()):
+        return False
+    thread_id = thread_id.strip()
+    async with _lock:
+        task = _active_tasks.pop(thread_id, None)
+    if task is None or task.done():
+        return False
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+    logger.info("LLM WS disconnected for thread_id=%s (e.g. operator joined)", thread_id)
     return True
 
 

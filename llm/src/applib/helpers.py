@@ -2,15 +2,11 @@ from pathlib import Path
 import json
 from datetime import datetime, timezone
 from typing import Any, Literal
-
-from langchain_core.messages import HumanMessage
-
+from boto3 import client
 
 def get_utc_now() -> str:
     """Return current UTC datetime in ISO format for message timestamps (sent_at/read_at)."""
     return datetime.now(timezone.utc).isoformat()
-
-
 
 
 def text_from_content_block(block: Any) -> str:
@@ -51,6 +47,7 @@ def load_json(path: str | Path) -> dict:
         j = json.load(f_in)
     return j
 
+
 def get_postgres_conn_string(user: str, password: str, database_name: str, host: str = None, port: str = None, sslmode: str = 'disable'):
     host = host or 'localhost'
     port = port or '5432'
@@ -84,6 +81,10 @@ def get_postgres_conn_string(user: str, password: str, database_name: str, host:
 #         f"Web app verification link: {invoice.web_app_link}",
 #     ])
 #     return "\n".join(lines)
+
+def get_secret_from_arn(secret_arn: str) -> dict[str, str]:
+    r = client("secretsmanager").get_secret_value(SecretId=secret_arn)
+    return json.loads(r["SecretString"])
 
 
 def redact_string(s: str, redaction_type: Literal['all', 'start', 'end'] = None) -> str:

@@ -9,9 +9,9 @@ from applib.state import State
 from applib.textcontent import static_messages
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
-from langchain_core.messages import AnyMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AnyMessage, HumanMessage, SystemMessage, AIMessage
 from typing import AsyncGenerator, Any
-from applib.graph.tracing import traced_astream_events, traced_ainvoke
+from applib.graph.tracing import traceable, traced_astream_events, traced_ainvoke
 import hashlib
 import json
 import uuid
@@ -103,29 +103,53 @@ async def generate_stream(request: ChatRequest) -> AsyncGenerator:
 
             event_type = event.get('event')
             node_name = event.get('name')
+            metadata = event.get('metadata', {})
+            langgraph_node = metadata.get('langgraph_node')
+
+            if event_type == "on_chain_stream":
+
+                if langgraph_node in ("web_escalation_request_respond", "sms_escalation_request_respond"):
+                    escalation_detected = True
+
+            # Stream tokens from LLM responses - check langgraph_node in metadata
+            if event_type == "on_chat_model_stream":
+                # The actual node name is in metadata['langgraph_node'], not in 'name'
+                if langgraph_node in ('sms_respond', 'web_respond'):
+                    chunk = event.get('data', {}).get('chunk')
+                    if chunk and hasattr(chunk, 'content') and chunk.content:
+                        content_items = chunk.content
+                        if content_items and len(content_items) > 0:
+                            content = content_items[0]
+                            if isinstance(content, dict) and content.get('type') == 'text':
+                                token = TokenEvent(content=content['text'])
+                                yield format_sse(token.model_dump())
 
             if event_type == "on_chain_end":
 
-                if node_name == "detect_escalation":
-                    escalation_detected = event.get('data', {}).get('output', {}).get('should_escalate', False)
+                # Stream from static message nodes
+                static_nodes = (
+                    'sms_escalation_request_respond', 'web_escalation_request_respond',
+                    'sms_out_of_scope_respond', 'web_out_of_scope_respond',
+                    'sms_message_post_script_respond', 'web_message_post_script_respond'
+                )
+                if node_name in static_nodes:
+                    output = event.get('data', {}).get('output', {})
+                    if isinstance(output, dict) and output.get('messages'):
+                        messages = output['messages']
+                        if messages and len(messages) > 0:
+                            message = messages[0]
+                            if hasattr(message, 'content'):
+                                content = message.content
+                                if isinstance(content, list) and len(content) > 0:
+                                    text = content[0].get('text', '') if isinstance(content[0], dict) else ''
+                                elif isinstance(content, str):
+                                    text = content
+                                else:
+                                    text = ''
 
-            if event_type == "on_chat_model_stream":
-                chunk = event.get('data', {}).get('chunk')
-
-                if chunk and hasattr(chunk, 'content') and chunk.content:
-                    content = chunk.content[0]
-                    if content['type'] == 'text':
-                        token = TokenEvent(content=content['text'])
-                        yield format_sse(token.model_dump())
-
-            if event_type == "on_chain_stream":
-                if node_name == "escalation_respond":
-                    chunk = event.get('data', {}).get('chunk', {})
-                    if chunk and chunk.get('messages'):
-                        content = chunk['messages'][0].content[0]
-                        if content['type'] == 'text':
-                            token = TokenEvent(content=content['text'])
-                            yield format_sse(token.model_dump())
+                                if text:
+                                    token = TokenEvent(content=text)
+                                    yield format_sse(token.model_dump())
 
 
         if escalation_detected:
@@ -139,6 +163,19 @@ async def generate_stream(request: ChatRequest) -> AsyncGenerator:
         error = ErrorEvent(message=str(e))
         print(error)
         yield format_sse(error.model_dump())
+
+
+def _extract_text_from_chat_model_chunk(chunk: Any) -> str:
+    """Extract text from an on_chat_model_stream chunk (AIMessageChunk)."""
+    if not chunk or not getattr(chunk, "content", None):
+        return ""
+    content = chunk.content
+    if not isinstance(content, list) or not content:
+        return ""
+    first = content[0]
+    if isinstance(first, dict) and first.get("type") == "text":
+        return (first.get("text") or "") or ""
+    return ""
 
 
 def _extract_text_from_chunk(chunk: dict | Any) -> str:
@@ -174,8 +211,10 @@ async def generate_stream_events(request: ChatRequest) -> AsyncGenerator[dict[st
     """
     graph_config = {"configurable": {"thread_id": request.thread_id}}
     input_state = create_state_from_chat_request(request)
-    token_parts: list[str] = []
     response_path: str = "in_scope"  # "in_scope" | "escalation" | "out_of_scope"
+    # Once we see content from post_validate / escalation / out_of_scope, stop forwarding LLM tokens
+    # (avoids sending guardrail-internal LLM stream; respond-node tokens are sent before this)
+    content_stream_done = False
 
     try:
         graph = await get_graph()
@@ -183,26 +222,28 @@ async def generate_stream_events(request: ChatRequest) -> AsyncGenerator[dict[st
             event_type = event.get("event")
             node_name = event.get("name")
 
+            if event_type == "on_chat_model_stream" and not content_stream_done:
+                chunk = event.get("data", {}).get("chunk")
+                text = _extract_text_from_chat_model_chunk(chunk)
+                if text:
+                    yield {"type": "token", "content": text}
+                continue
+
             if event_type != "on_chain_stream":
                 continue
 
             chunk = event.get("data", {}).get("chunk", {})
             text = _extract_text_from_chunk(chunk)
-            if not text:
-                continue
 
-            if node_name in ("web_post_validate", "sms_post_validate"):
-                token_parts.append(text)
-                response_path = "in_scope"
-            elif node_name in ("web_escalation_request_respond", "sms_escalation_request_respond"):
-                token_parts.append(text)
+                # Do not yield content here: we already streamed tokens from the respond node
+            if node_name in ("web_escalation_request_respond", "sms_escalation_request_respond"):
                 response_path = "escalation"
+                if text:
+                    yield {"type": "token", "content": text}
             elif node_name in ("web_out_of_scope_respond", "sms_out_of_scope_respond"):
-                token_parts.append(text)
                 response_path = "out_of_scope"
-
-        full_content = "".join(token_parts)
-        yield {"type": "token", "content": full_content}
+                if text:
+                    yield {"type": "token", "content": text}
 
         if response_path == "in_scope":
             static_text = get_message_post_script_for_channel(
@@ -258,23 +299,35 @@ async def get_message_history(
     return ordered
 
 
+@traceable(name="chat_sms_invoke", run_type="chain")
 async def chat_sms_invoke(request: SmsChatRequest) -> str:
     """Run graph for SMS chat via stream events and return the full response text.
 
     Reuses the same streaming logic as generate_stream_events: collect content from
-    on_chain_stream for SMS nodes. The graph substitutes {LINK_TO_WEBAPP} in
-    static messages at execution time. Returns the entire AI message plus static
-    post_script in one string for the REST response.
+    on_chat_model_stream (sms_respond) and on_chain_stream (static SMS nodes). The graph
+    substitutes {LINK_TO_WEBAPP} in static messages at execution time. Returns the entire
+    AI message plus static post_script in one string for the REST response.
     """
     graph_config = {"configurable": {"thread_id": request.thread_id}}
     input_state = create_state_from_sms_request(request)
-    token_parts: list[str] = []
+    ai_response_parts: list[str] = []
+    static_parts: list[str] = []
 
     try:
         graph = await get_graph()
         async for event in traced_astream_events(graph, input_state, graph_config, version="v2"):
             event_type = event.get("event")
             node_name = event.get("name")
+            metadata = event.get("metadata", {})
+
+            if event_type == "on_chat_model_stream":
+                langgraph_node = metadata.get("langgraph_node")
+                if langgraph_node == "sms_respond":
+                    chunk = event.get("data", {}).get("chunk")
+                    text = _extract_text_from_chat_model_chunk(chunk)
+                    if text:
+                        ai_response_parts.append(text)
+                continue
 
             if event_type != "on_chain_stream":
                 continue
@@ -284,16 +337,16 @@ async def chat_sms_invoke(request: SmsChatRequest) -> str:
             if not text:
                 continue
 
-            if node_name in ("sms_post_validate", "sms_append_ai_no_guardrail"):
-                token_parts.append(text)
-            elif node_name == "sms_escalation_request_respond":
-                token_parts.append(text)
-            elif node_name in ("sms_out_of_scope_respond", "sms_respond"):
-                token_parts.append(text)
+            if node_name == "sms_escalation_request_respond":
+                static_parts.append(text)
+            elif node_name == "sms_out_of_scope_respond":
+                static_parts.append(text)
             elif node_name == "sms_message_post_script_respond":
-                token_parts.append(text)
+                static_parts.append(text)
 
-        return "\n\n".join(p for p in token_parts if p)
+        ai_response = "".join(ai_response_parts).strip() if ai_response_parts else ""
+        all_parts = [ai_response, *static_parts]
+        return "\n\n".join(p for p in all_parts if p)
     except Exception:
         raise
 
@@ -334,6 +387,18 @@ async def session_connect(request: SessionConnectRequest) -> dict:
 
     started = await start_connection(request.thread_id.strip())
     return {"status": "connected", "thread_id": request.thread_id.strip()}
+
+
+@router.post("/thread/disconnect", response_class=JSONResponse)
+async def session_disconnect(request: SessionConnectRequest) -> dict:
+    """Disconnect LLM WebSocket client for the given thread_id. Called by ws_server when operator joins (same session_id) so the patient's LLM session is closed."""
+    from applib.ws_client import stop_connection
+
+    if not request.thread_id or not request.thread_id.strip():
+        raise HTTPException(status_code=400, detail="thread_id is required")
+
+    stopped = await stop_connection(request.thread_id.strip())
+    return {"status": "disconnected", "thread_id": request.thread_id.strip(), "was_connected": stopped}
 
 @router.post("/thread/summarize", response_class=JSONResponse)
 async def summarize(request: SummarizeRequest) -> dict:

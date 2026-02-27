@@ -5,19 +5,50 @@ Key behavior:
 - URL: /ws/session/<session_id>/
 - Multiple clients may connect to the SAME session_id concurrently (listeners).
 - Uses Channels groups (backed by Redis channel layer) for cross-instance fan-out.
+- When an operator joins (first message with user_type=operator), we tell the LLM
+  to disconnect for this session_id so the patient's LLM connection is closed.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 import uuid
+from urllib.parse import unquote
 from typing import Any, Dict, Optional
 from channels.generic.websocket import AsyncWebsocketConsumer
 from django.conf import settings
 
 from .presence import list_connections, remove_connection, refresh_connection, upsert_connection
+
+logger = logging.getLogger(__name__)
+
+
+def _call_llm_disconnect_sync(thread_id: str) -> bool:
+    """
+    Call LLM service POST /thread/disconnect (sync, for use from asyncio.to_thread).
+    Returns True if the LLM had an active connection and disconnected it.
+    """
+    base = getattr(settings, "LLM_SERVICE_URL", None) or ""
+    base = (base or "").rstrip("/")
+    if not base:
+        return False
+    url = f"{base}/thread/disconnect"
+    headers = {}
+    api_key = getattr(settings, "AUTH_API_KEY", None) or ""
+    if api_key:
+        headers["x-api-key"] = api_key
+    try:
+        import requests
+        resp = requests.post(url, json={"thread_id": thread_id}, headers=headers, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            return data.get("was_connected", False)
+    except Exception as e:
+        logger.warning("LLM disconnect call failed for thread_id=%s: %s", thread_id, e)
+    return False
 
 
 def _get_header(scope: dict, name: str) -> Optional[str]:
@@ -29,8 +60,28 @@ def _get_header(scope: dict, name: str) -> Optional[str]:
     return None
 
 
+def _parse_query_string(scope: dict) -> Dict[str, str]:
+    """Parse query_string from ASGI scope into a dict (single value per key)."""
+    raw = scope.get("query_string")
+    if not raw:
+        return {}
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8", errors="replace")
+    out: Dict[str, str] = {}
+    for part in raw.split("&"):
+        if "=" in part:
+            k, v = part.split("=", 1)
+            out[unquote(k.strip())] = unquote(v.strip())
+    return out
+
+
 def _get_api_key_from_scope(scope: dict) -> Optional[str]:
-    """Get API key from X-API-KEY header or from Sec-WebSocket-Protocol subprotocols (browser clients)."""
+    """
+    Get API key from (in order):
+    1. X-API-KEY header (non-browser clients).
+    2. Sec-WebSocket-Protocol subprotocols (browser: ['x-api-key', key]).
+    3. Query string ?api_key=... or ?x-api-key=... (fallback when proxy strips headers/subprotocols over WSS).
+    """
     provided = _get_header(scope, "x-api-key")
     if provided:
         return provided
@@ -38,7 +89,9 @@ def _get_api_key_from_scope(scope: dict) -> Optional[str]:
     subprotocols = scope.get("subprotocols") or []
     if len(subprotocols) >= 2 and (subprotocols[0] or "").strip().lower() == "x-api-key":
         return ",".join((s or "").strip() for s in subprotocols[1:]).strip() or None
-    return None
+    # Fallback: query string (e.g. wss://host/ws/session/<id>/?api_key=KEY) when proxy strips headers
+    query = _parse_query_string(scope)
+    return query.get("api_key") or query.get("x-api-key") or None
 
 
 class SessionConsumer(AsyncWebsocketConsumer):
@@ -48,6 +101,7 @@ class SessionConsumer(AsyncWebsocketConsumer):
     Notes:
     - Works behind ALB + AutoScaling (no sticky sessions required).
     - Uses Redis channel layer for cross-instance broadcast.
+    - API key: header X-API-KEY, subprotocols ['x-api-key', key], or query ?api_key=... (for WSS when proxy strips headers).
     """
 
     def __init__(self, *args: Any, **kwargs: Any):
@@ -78,21 +132,33 @@ class SessionConsumer(AsyncWebsocketConsumer):
         return f"session.{safe}"
 
     async def connect(self) -> None:
-        # API key auth: when AUTH_API_KEY is set, require X-API-KEY header or subprotocol (browser).
+        # API key auth: when AUTH_API_KEY is set, require key via header, subprotocol, or query string.
         auth_key = getattr(settings, "AUTH_API_KEY", None) or None
         if auth_key:
             provided = _get_api_key_from_scope(self.scope)
             if not provided or provided != auth_key:
-                # Reject connection before accept(); server will close the connection.
+                # Log reason without leaking keys; helps debug WSS failures (e.g. proxy stripping headers).
+                reason = "missing" if not provided else "invalid"
+                has_origin = _get_header(self.scope, "origin") is not None
+                logger.warning(
+                    "WebSocket auth rejected (%s): key_provided=%s, origin_present=%s, path=%s",
+                    reason,
+                    bool(provided),
+                    has_origin,
+                    (self.scope.get("raw_path") or self.scope.get("path", "")),
+                )
+                await self.close(code=4401)
                 return
 
         self.session_id = self.scope["url_route"]["kwargs"]["session_id"]
         self.group_name = self._group_name(self.session_id)
 
-        # If client used subprotocols for API key, accept with first subprotocol so handshake is valid
         subprotocols = self.scope.get("subprotocols") or []
-        subprotocol = subprotocols[0] if subprotocols else None
-        await self.accept(subprotocol=subprotocol)
+
+        if subprotocols:
+            await self.accept(subprotocol=subprotocols[0])
+        else:
+            await self.accept()
 
         # Join the session group so this socket receives broadcasts for session_id
         # across all instances (Redis channel layer fan-out).
@@ -178,6 +244,24 @@ class SessionConsumer(AsyncWebsocketConsumer):
 
                 if not self._presence_task:
                     self._presence_task = asyncio.create_task(self._presence_refresh_loop())
+
+                # When operator joins, disconnect the LLM for this session so patient's LLM is closed.
+                if self.user_type == "operator":
+                    try:
+                        was_connected = await asyncio.to_thread(
+                            _call_llm_disconnect_sync, self.session_id
+                        )
+                        if was_connected:
+                            logger.info(
+                                "Disconnected LLM for session_id=%s (operator joined)",
+                                self.session_id,
+                            )
+                    except Exception as e:
+                        logger.warning(
+                            "LLM disconnect failed for session_id=%s: %s",
+                            self.session_id,
+                            e,
+                        )
 
         # Refresh presence metadata on activity.
         if self.session_id and self._presence_registered:

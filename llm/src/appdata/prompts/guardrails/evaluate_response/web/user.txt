@@ -1,7 +1,7 @@
-User query:
+<user_query>
 {user_query}
+</user_query>
 
-Assistant response to evaluate:
+<response_to_check>
 {response_to_check}
-
-Evaluate the assistant response against the metrics. You must return the full structured output with every required metric (no_markdown, is_concise, no_pii, no_payment_promises, is_appropriate). Set each to true or false. Do not omit any field.
+</response_to_check>

@@ -1,9 +1,10 @@
 """
-AWS CDK Stack for ECS Fargate deployment with ALB, ElastiCache Redis, and LLM ALB.
+AWS CDK Stack for ECS Fargate deployment with ALB, ElastiCache Redis, RDS PostgreSQL, and LLM ALB.
 
 This stack creates:
 - Two Application Load Balancers (ws_server, LLM) in public subnets
 - ElastiCache Redis in private subnets (accessible only by ws_server tasks)
+- Optional RDS PostgreSQL in private subnets (for LLM checkpointer; when CREATE_RDS=true)
 - Two ECS Fargate services on the same cluster: ws_server (port 8000) and LLM (port 7980), each with its own task definition
 - ALB endpoints route to the correct service; Redis connects only to ws_server
 - Auto-scaling and security groups per service
@@ -21,6 +22,7 @@ from aws_cdk import (
     aws_elasticache as elasticache,
     aws_elasticloadbalancingv2 as elbv2,
     aws_iam as iam,
+    aws_rds as rds,
     aws_logs as logs,
     aws_secretsmanager as secretsmanager,
 )
@@ -41,11 +43,12 @@ LLM_SECRET_KEYS = {
     "PSQL_STATE_DATABASE",
     "PSQL_SSLMODE",
     "AWS_BEDROCK_REGION",
-    "BEDROCK_MODEL_ID_BILLING_AGENT",
-    "BEDROCK_MODEL_ID_CLAIM_AGENT",
-    "BEDROCK_MODEL_ID_ESCALATION_DETECTION",
-    "BEDROCK_MODEL_ID_INTENT_DETECTION",
+    "BEDROCK_MODEL_ID_WEB_ROUTER",
     "BEDROCK_MODEL_ID_SMS_ROUTER",
+    "BEDROCK_MODEL_ID_SMS_GUARDRAIL_EVALUATE",
+    "BEDROCK_MODEL_ID_WEB_GUARDRAIL_EVALUATE",
+    "BEDROCK_MODEL_ID_SMS_GUARDRAIL_REWRITE",
+    "BEDROCK_MODEL_ID_WEB_GUARDRAIL_REWRITE",
     "BEDROCK_MODEL_ID_THREAD_SUMMARIZE",
     "BEDROCK_MODEL_ID_SMS_RESPOND",
     "BEDROCK_MODEL_ID_WEB_RESPOND",
@@ -90,6 +93,13 @@ class WebSocketPbaStack(Stack):
         # RDS configuration (optional)
         rds_sg_id = os.getenv("RDS_SECURITY_GROUP_ID")
         rds_port = int(os.getenv("RDS_PORT", "5432"))  # Default to PostgreSQL port
+        create_rds = os.getenv("CREATE_RDS", "true").lower() == "true"
+        rds_instance_class = os.getenv("RDS_INSTANCE_CLASS", "db.t4g.small")
+        rds_database_name = os.getenv(
+            "RDS_DATABASE_NAME",
+            f"pba_postgres_checkpointer_instance_{environment}",
+        )
+        rds_allocated_storage_gb = int(os.getenv("RDS_ALLOCATED_STORAGE_GB", "20"))
         # ECS security group configuration
         ecs_sg_id = os.getenv("ECS_SECURITY_GROUP_ID")  # Use existing SG if provided
 
@@ -229,8 +239,9 @@ class WebSocketPbaStack(Stack):
             )
 
         # RDS: allow both ws_server and LLM services (both may need DB)
+        rds_sg = None
         if rds_sg_id:
-            print(f"Configuring RDS connectivity...")
+            print("Configuring RDS connectivity (existing security group)...")
             rds_sg = ec2.SecurityGroup.from_security_group_id(
                 self,
                 "RDSSecurityGroup",
@@ -247,9 +258,29 @@ class WebSocketPbaStack(Stack):
                 ec2.Port.tcp(rds_port),
                 "Allow traffic from LLM ECS tasks",
             )
-            print(f"✅ Configured RDS security group for ws_server and LLM")
+            print("✅ Configured RDS security group for ws_server and LLM")
+        elif create_rds:
+            print("Creating RDS security group (CREATE_RDS=true, no RDS_SECURITY_GROUP_ID)...")
+            rds_sg = ec2.SecurityGroup(
+                self,
+                "RDSSecurityGroup",
+                vpc=vpc,
+                description="Security group for RDS PostgreSQL (LLM checkpointer)",
+                allow_all_outbound=True,
+            )
+            rds_sg.add_ingress_rule(
+                ws_sg,
+                ec2.Port.tcp(rds_port),
+                "Allow traffic from ws_server ECS tasks",
+            )
+            rds_sg.add_ingress_rule(
+                llm_sg,
+                ec2.Port.tcp(rds_port),
+                "Allow traffic from LLM ECS tasks",
+            )
+            print("✅ Created RDS security group for ws_server and LLM")
         else:
-            print("⚠️  RDS_SECURITY_GROUP_ID not set - skipping RDS configuration")
+            print("⚠️  RDS_SECURITY_GROUP_ID not set and CREATE_RDS=false - skipping RDS configuration")
 
         # ElastiCache Redis: inbound from ws_server tasks only (LLM does not connect to Redis)
         redis_node_type = os.getenv("REDIS_CACHE_NODE_TYPE", "cache.t3.micro")
@@ -285,6 +316,53 @@ class WebSocketPbaStack(Stack):
             automatic_failover_enabled=False,
         )
         redis_cluster.add_dependency(redis_subnet_group)
+
+        # --- RDS PostgreSQL (LLM checkpointer) - only when CREATE_RDS=true and we have rds_sg ---
+        rds_instance = None
+        rds_secret = None
+        if create_rds and rds_sg is not None:
+            db_subnet_group = rds.SubnetGroup(
+                self,
+                "RDSSubnetGroup",
+                description=f"Subnet group for PBA Graph Checkpointer RDS PostgreSQL ({environment})",
+                vpc=vpc,
+                vpc_subnets=ec2.SubnetSelection(subnets=private_subnets),
+                subnet_group_name=f"pba-checkpointer-rds-{environment}",
+            )
+            # Map common instance class strings to CDK InstanceType (default: db.t4g.micro)
+            if rds_instance_class == "db.t3.micro":
+                instance_type = ec2.InstanceType.of(
+                    ec2.InstanceClass.BURSTABLE3,
+                    ec2.InstanceSize.MICRO,
+                )
+            else:
+                instance_type = ec2.InstanceType.of(
+                    ec2.InstanceClass.BURSTABLE4_GRAVITON,
+                    ec2.InstanceSize.MICRO,
+                )
+            rds_credentials = rds.Credentials.from_generated_secret("postgres")
+            rds_instance = rds.DatabaseInstance(
+                self,
+                "RDSInstance",
+                engine=rds.DatabaseInstanceEngine.postgres(
+                    version=rds.PostgresEngineVersion.VER_17,
+                ),
+                instance_type=instance_type,
+                vpc=vpc,
+                subnet_group=db_subnet_group,
+                security_groups=[rds_sg],
+                credentials=rds_credentials,
+                database_name=rds_database_name,
+                allocated_storage=rds_allocated_storage_gb,
+                port=rds_port,
+                instance_identifier=f"pba-checkpointer-{environment}",
+                publicly_accessible=False,
+                multi_az=False,
+            )
+            rds_instance.node.add_dependency(db_subnet_group)
+            rds_secret = rds_instance.secret
+            print("✅ RDS PostgreSQL instance will be created (CREATE_RDS=true)")
+            print(f"   Run infrastructure/deploy.sh to sync RDS credentials into pba-{environment}/llm-server-secrets after deploy")
 
         # Create Application Load Balancer (ws_server)
         # Set idle timeout to 3600 seconds (1 hour) for WebSocket support
@@ -425,6 +503,9 @@ class WebSocketPbaStack(Stack):
             )
             ws_secret.grant_read(task_execution_role)
             llm_secret.grant_read(task_execution_role)
+            # When we created RDS in this stack, LLM gets PSQL_* from the RDS-generated secret (populated by RDS in Secrets Manager)
+            if rds_secret is not None:
+                rds_secret.grant_read(task_execution_role)
 
             redis_primary = redis_cluster.attr_primary_end_point_address
             redis_port_attr = redis_cluster.attr_primary_end_point_port
@@ -452,6 +533,7 @@ class WebSocketPbaStack(Stack):
                 "AUTH_API_KEY": ecs.Secret.from_secrets_manager(ws_secret, field="AUTH_API_KEY"),
                 "LLM_SERVICE_AUTH": ecs.Secret.from_secrets_manager(ws_secret, field="LLM_SERVICE_AUTH"),
             }
+            # PSQL_* and other LLM secrets always from existing pba-{env}/llm-server-secrets (updated by sync when RDS is created in stack)
             llm_secrets = {
                 "PSQL_BOT_USERNAME": ecs.Secret.from_secrets_manager(llm_secret, field="PSQL_BOT_USERNAME"),
                 "PSQL_BOT_PASSWORD": ecs.Secret.from_secrets_manager(llm_secret, field="PSQL_BOT_PASSWORD"),
@@ -460,6 +542,8 @@ class WebSocketPbaStack(Stack):
                 "PSQL_STATE_DATABASE": ecs.Secret.from_secrets_manager(llm_secret, field="PSQL_STATE_DATABASE"),
                 "PSQL_SSLMODE": ecs.Secret.from_secrets_manager(llm_secret, field="PSQL_SSLMODE"),
                 "AWS_BEDROCK_REGION": ecs.Secret.from_secrets_manager(llm_secret, field="AWS_BEDROCK_REGION"),
+            }
+            llm_secrets.update({
                 "BEDROCK_MODEL_ID_BILLING_AGENT": ecs.Secret.from_secrets_manager(llm_secret, field="BEDROCK_MODEL_ID_BILLING_AGENT"),
                 "BEDROCK_MODEL_ID_CLAIM_AGENT": ecs.Secret.from_secrets_manager(llm_secret, field="BEDROCK_MODEL_ID_CLAIM_AGENT"),
                 "BEDROCK_MODEL_ID_ESCALATION_DETECTION": ecs.Secret.from_secrets_manager(llm_secret, field="BEDROCK_MODEL_ID_ESCALATION_DETECTION"),
@@ -470,7 +554,7 @@ class WebSocketPbaStack(Stack):
                 "BEDROCK_MODEL_ID_WEB_RESPOND": ecs.Secret.from_secrets_manager(llm_secret, field="BEDROCK_MODEL_ID_WEB_RESPOND"),
                 "AUTH_API_KEY": ecs.Secret.from_secrets_manager(llm_secret, field="AUTH_API_KEY"),
                 "MAXIMUM_GUARDRAIL_REWRITES": ecs.Secret.from_secrets_manager(llm_secret, field="MAXIMUM_GUARDRAIL_REWRITES"),
-            }
+            })
 
             runtime_platform = ecs.RuntimePlatform(
                 cpu_architecture=ecs.CpuArchitecture.ARM64,
@@ -630,6 +714,29 @@ class WebSocketPbaStack(Stack):
             description="Redis connection URL (redis://host:port/0)",
         )
 
+        # RDS outputs (when CREATE_RDS=true)
+        if rds_instance is not None and rds_secret is not None:
+            self.add_output(
+                "RDSEndpoint",
+                value=rds_instance.db_instance_endpoint_address,
+                description="RDS PostgreSQL endpoint hostname (use for PSQL_HOST in LLM secret)",
+            )
+            self.add_output(
+                "RDSPort",
+                value=str(rds_instance.db_instance_endpoint_port),
+                description="RDS PostgreSQL port",
+            )
+            self.add_output(
+                "RDSSecretArn",
+                value=rds_secret.secret_arn,
+                description="ARN of Secrets Manager secret containing username and password",
+            )
+            self.add_output(
+                "RDSMasterUsername",
+                value="postgres",
+                description="RDS master username (password is in RDSSecretArn)",
+            )
+
     def _load_task_environment_variables(
         self,
         overrides: dict | None = None,
@@ -676,6 +783,12 @@ class WebSocketPbaStack(Stack):
             "DEPLOY_ECS_SERVICE",
             "LLM_SERVICE_URL_ECS",
             "REDIS_CACHE_NODE_TYPE",
+            "CREATE_RDS",
+            "RDS_INSTANCE_CLASS",
+            "RDS_DATABASE_NAME",
+            "RDS_ALLOCATED_STORAGE_GB",
+            "RDS_SECURITY_GROUP_ID",
+            "RDS_PORT",
         }
 
         excluded = exclude_keys or set()

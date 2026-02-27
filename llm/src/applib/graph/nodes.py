@@ -27,16 +27,16 @@ async def channel_router(state: State) -> Channel:
     return Channel(state['channel'])
 
 
-def _should_run_guardrail(state: State) -> str:
-    """Route after respond node: run guardrail (post_validate) only if response was AI-generated."""
-    if state.get("pending_ai_message") is not None:
-        return "sms_post_validate" if state["channel"] == Channel.SMS else "web_post_validate"
-    return "sms_message_post_script_respond" if state["channel"] == Channel.SMS else "web_message_post_script_respond"
+# def _should_run_guardrail(state: State) -> str:
+#     """Route after respond node: run guardrail (post_validate) only if response was AI-generated."""
+#     if state.get("pending_ai_message") is not None:
+#         return "sms_post_validate" if state["channel"] == Channel.SMS else "web_post_validate"
+#     return "sms_message_post_script_respond" if state["channel"] == Channel.SMS else "web_message_post_script_respond"
 
 async def sms_intent_router(state: State) -> SmsIntent:
     try:
         llm = (
-            get_bedrock_converse_model(model_id=config.BEDROCK_MODEL_ID_INTENT_DETECTION)
+            get_bedrock_converse_model(model_id=config.BEDROCK_MODEL_ID_SMS_ROUTER)
             .with_structured_output(SmsIntentClassification)
         )
 
@@ -50,10 +50,9 @@ async def sms_intent_router(state: State) -> SmsIntent:
             *state['messages'][-3:]
         ]
 
-        response = await llm.ainvoke(messages)
-        if response is not None:
-            return SmsIntent(response.intent)
-        return SmsIntent.OUT_OF_SCOPE
+        response: SmsIntentClassification = await llm.ainvoke(messages)
+        return SmsIntent(response.intent)
+
     except Exception as e:
         logger.warning("SMS intent router failed, falling back to out_of_scope: %s", e, exc_info=True)
         return SmsIntent.OUT_OF_SCOPE
@@ -62,7 +61,7 @@ async def sms_intent_router(state: State) -> SmsIntent:
 async def web_intent_router(state: State) -> WebIntent:
     try:
         llm = (
-            get_bedrock_converse_model(model_id=config.BEDROCK_MODEL_ID_INTENT_DETECTION)
+            get_bedrock_converse_model(model_id=config.BEDROCK_MODEL_ID_WEB_ROUTER)
             .with_structured_output(WebIntentClassification)
         )
         system_content = [
@@ -75,10 +74,9 @@ async def web_intent_router(state: State) -> WebIntent:
             *state['messages'][-3:]
         ]
 
-        response = await llm.ainvoke(messages)
-        if response is not None:
-            return WebIntent(response.intent)
-        return WebIntent.OUT_OF_SCOPE
+        response: WebIntentClassification = await llm.ainvoke(messages)
+        return WebIntent(response.intent)
+
     except Exception as e:
         logger.warning("Web intent router failed, falling back to out_of_scope: %s", e, exc_info=True)
         return WebIntent.OUT_OF_SCOPE
@@ -151,8 +149,18 @@ async def sms_respond(state: State) -> dict:
             *state['messages'][-10:]
             ]
 
-        response = await llm.ainvoke(messages)
-        return {"pending_ai_message": response}
+        # Stream and aggregate so astream_events emits on_chat_model_stream for token-level streaming
+        acc = None
+        async for chunk in llm.astream(messages):
+            acc = chunk if acc is None else acc + chunk
+        response = acc
+        # Append to messages so thread history (api/thread/history) includes this AI reply
+        ai_message = AIMessage(
+            content=response.content,
+            id=str(uuid.uuid4()),
+            additional_kwargs={"timestamp": get_utc_now()},
+        )
+        return {"pending_ai_message": response, "messages": [ai_message]}
 
     except Exception as e:
         logger.warning("SMS respond failed, falling back to out_of_scope: %s", e, exc_info=True)
@@ -178,7 +186,7 @@ async def web_respond(state: State) -> dict:
             ChatBedrockConverse.create_cache_point(),
         ]
 
-        if getattr(state, "invoice", None) is not None:
+        if state.get("invoice") is not None:
 
             for claim in state['invoice'].claims:
                 add_guidance_to_claim_adjustments(claim)
@@ -201,9 +209,15 @@ async def web_respond(state: State) -> dict:
             SystemMessage(content=system_content),
             *state['messages'][-10:]
         ]
+        
         response = await llm.ainvoke(messages)
-
-        return {"pending_ai_message": response}
+        # Append to messages so thread history (api/thread/history) includes this AI reply
+        ai_message = AIMessage(
+            content=response.content,
+            id=str(uuid.uuid4()),
+            additional_kwargs={"timestamp": get_utc_now()},
+        )
+        return {"pending_ai_message": response, "messages": [ai_message]}
 
     except Exception as e:
         logger.warning("Web respond failed, falling back to out_of_scope: %s", e, exc_info=True)
@@ -218,62 +232,62 @@ def _out_of_scope_fallback_for_channel(channel: Channel) -> str:
     return static_messages.out_of_scope.sms if channel == Channel.SMS else static_messages.out_of_scope.web
 
 
-async def post_validate(state: State) -> dict:
-    messages = state["messages"]
-    # Response to validate comes from pending_ai_message (set by respond node); we do not read from messages
-    # so that we append only one AIMessage after validation (avoids duplicate in history).
-    pending = state.get("pending_ai_message")
-    user_query = message_content_str(messages[-1]) if len(messages) >= 1 else ""
-    response_to_check = message_content_str(pending) if pending is not None else ""
-    channel = state["channel"]
+# async def post_validate(state: State) -> dict:
+#     messages = state["messages"]
+#     # Response to validate comes from pending_ai_message (set by respond node); we do not read from messages
+#     # so that we append only one AIMessage after validation (avoids duplicate in history).
+#     pending = state.get("pending_ai_message")
+#     user_query = message_content_str(messages[-1]) if len(messages) >= 1 else ""
+#     response_to_check = message_content_str(pending) if pending is not None else ""
+#     channel = state["channel"]
 
-    try:
-        guardrail_graph = await get_guardrail_graph()
-        guardrail_state = GuardrailState(
-            thread_id=state['thread_id'],
-            user_query=user_query,
-            response_to_check=response_to_check,
-            rewrite_attempts=0,
-            max_rewrites=config.MAXIMUM_GUARDRAIL_REWRITES,
-            channel=channel,
-        )
+#     try:
+#         guardrail_graph = await get_guardrail_graph()
+#         guardrail_state = GuardrailState(
+#             thread_id=state['thread_id'],
+#             user_query=user_query,
+#             response_to_check=response_to_check,
+#             rewrite_attempts=0,
+#             max_rewrites=config.MAXIMUM_GUARDRAIL_REWRITES,
+#             channel=channel,
+#         )
 
-        # Set recursion_limit as a safety net (max_rewrites * 2 + buffer for evaluation nodes)
-        # This prevents infinite loops even if rewrite_attempts logic fails
-        recursion_limit = (config.MAXIMUM_GUARDRAIL_REWRITES * 2) + 10
+#         # Set recursion_limit as a safety net (max_rewrites * 2 + buffer for evaluation nodes)
+#         # This prevents infinite loops even if rewrite_attempts logic fails
+#         recursion_limit = (config.MAXIMUM_GUARDRAIL_REWRITES * 2) + 10
 
-        # CRITICAL: The guardrail subgraph also has a checkpointer, so it needs the same config structure
-        # with 'configurable.thread_id'. We construct this from the state's thread_id.
-        guardrail_config = {
-            'configurable': {'thread_id': state['thread_id']},
-            'recursion_limit': recursion_limit,
-        }
+#         # CRITICAL: The guardrail subgraph also has a checkpointer, so it needs the same config structure
+#         # with 'configurable.thread_id'. We construct this from the state's thread_id.
+#         guardrail_config = {
+#             'configurable': {'thread_id': state['thread_id']},
+#             'recursion_limit': recursion_limit,
+#         }
 
-        result = await guardrail_graph.ainvoke(guardrail_state, config=guardrail_config)
-        validated_response = result.get("validated_response", "")
-        return {
-            "messages": [AIMessage(content=[{"type": "text", "text": validated_response}], id=str(uuid.uuid4()), additional_kwargs={"timestamp": get_utc_now()})],
-            "pending_ai_message": None,
-        }
-    except Exception as e:
-        logger.warning("Post-validate (guardrail) failed, falling back to out_of_scope: %s", e, exc_info=True)
-        fallback = _out_of_scope_fallback_for_channel(channel)
-        return {
-            "messages": [AIMessage(content=[{"type": "text", "text": fallback}], id=str(uuid.uuid4()), additional_kwargs={"timestamp": get_utc_now()})],
-            "pending_ai_message": None,
-        }
+#         result = await guardrail_graph.ainvoke(guardrail_state, config=guardrail_config)
+#         validated_response = result.get("validated_response", "")
+#         return {
+#             "messages": [AIMessage(content=[{"type": "text", "text": validated_response}], id=str(uuid.uuid4()), additional_kwargs={"timestamp": get_utc_now()})],
+#             "pending_ai_message": None,
+#         }
+#     except Exception as e:
+#         logger.warning("Post-validate (guardrail) failed, falling back to out_of_scope: %s", e, exc_info=True)
+#         fallback = _out_of_scope_fallback_for_channel(channel)
+#         return {
+#             "messages": [AIMessage(content=[{"type": "text", "text": fallback}], id=str(uuid.uuid4()), additional_kwargs={"timestamp": get_utc_now()})],
+#             "pending_ai_message": None,
+#         }
 
 
-async def append_ai_no_guardrail(state: State) -> dict:
-    """When guardrail is skipped (e.g. static path), append pending_ai_message to messages as-is and clear it."""
-    pending = state.get("pending_ai_message")
-    if pending is None:
-        return {}
-    text = message_content_str(pending)
-    return {
-        "messages": [AIMessage(content=[{"type": "text", "text": text}], id=str(uuid.uuid4()), additional_kwargs={"timestamp": get_utc_now()})],
-        "pending_ai_message": None,
-    }
+# async def append_ai_no_guardrail(state: State) -> dict:
+#     """When guardrail is skipped (e.g. static path), append pending_ai_message to messages as-is and clear it."""
+#     pending = state.get("pending_ai_message")
+#     if pending is None:
+#         return {}
+#     text = message_content_str(pending)
+#     return {
+#         "messages": [AIMessage(content=[{"type": "text", "text": text}], id=str(uuid.uuid4()), additional_kwargs={"timestamp": get_utc_now()})],
+#         "pending_ai_message": None,
+#     }
 
 
 async def _static_respond(state: State, static_message: str) -> dict:
@@ -289,22 +303,45 @@ async def _static_respond(state: State, static_message: str) -> dict:
     Returns:
         State update with the static message wrapped in an AIMessage
     """
-    text = static_message
-    webapp_link = state.get("webapp_link") or ""
-    if webapp_link and "{LINK_TO_WEBAPP}" in text:
-        text = text.replace("{LINK_TO_WEBAPP}", webapp_link)
     return {
-        "messages": [AIMessage(content=[{"type": "text", "text": text}], id=str(uuid.uuid4()), additional_kwargs={"timestamp": get_utc_now()})]
+        "messages": [AIMessage(content=[{"type": "text", "text": static_message}], id=str(uuid.uuid4()), additional_kwargs={"timestamp": get_utc_now()})]
     }
 
+async def sms_escalation_request_respond(state: State) -> dict:
+    static_message = (
+        static_messages
+        .escalation_request.sms
+        .format(LINK_TO_WEBAPP=state.get('webapp_link', ''))
+    )
+    return await _static_respond(state, static_message)
 
-sms_escalation_request_respond = partial(_static_respond, static_message=static_messages.escalation_request.sms)
-web_escalation_request_respond = partial(_static_respond, static_message=static_messages.escalation_request.web)
+async def sms_out_of_scope_respond(state: State) -> dict:
+    static_message = (
+        static_messages
+        .out_of_scope.sms
+        .format(LINK_TO_WEBAPP=state.get('webapp_link', ''))
+    )
+    return await _static_respond(state, static_message)
 
-sms_out_of_scope_respond = partial(_static_respond, static_message=static_messages.out_of_scope.sms)
+async def sms_message_post_script_respond(state: State) -> dict:
+    static_message = (
+        static_messages
+        .message_post_script.sms
+        .format(LINK_TO_WEBAPP=state.get('webapp_link', ''))
+    )
+    return await _static_respond(state, static_message)
+
+async def web_escalation_request_respond(state: State) -> dict:
+    # TODO: WHAT IF NO INVOICE?
+    static_message = (
+        static_messages
+        .escalation_request.web
+        .format(CUSTOMER_SERVICE_HOURS=state['invoice'].practice.hours)
+    )
+    return await _static_respond(state, static_message)
+
 web_out_of_scope_respond = partial(_static_respond, static_message=static_messages.out_of_scope.web)
 
-sms_message_post_script_respond = partial(_static_respond, static_message=static_messages.message_post_script.sms)
 web_message_post_script_respond = partial(_static_respond, static_message=static_messages.message_post_script.web)
 
 
@@ -323,10 +360,10 @@ def get_graph_builder() -> StateGraph:
     builder.add_node('web_respond', web_respond)
 
     # guardrails
-    builder.add_node('sms_post_validate', post_validate)
-    builder.add_node('web_post_validate', post_validate)
-    builder.add_node('sms_append_ai_no_guardrail', append_ai_no_guardrail)
-    builder.add_node('web_append_ai_no_guardrail', append_ai_no_guardrail)
+    # builder.add_node('sms_post_validate', post_validate)
+    # builder.add_node('web_post_validate', post_validate)
+    # builder.add_node('sms_append_ai_no_guardrail', append_ai_no_guardrail)
+    # builder.add_node('web_append_ai_no_guardrail', append_ai_no_guardrail)
 
     # statics
     builder.add_node('sms_escalation_request_respond', sms_escalation_request_respond)
@@ -362,17 +399,18 @@ def get_graph_builder() -> StateGraph:
         }
     )
 
-    builder.add_conditional_edges(
-        'sms_respond',
-        _should_run_guardrail,
-        {
-            'sms_post_validate': 'sms_post_validate',
-            'sms_message_post_script_respond': 'sms_append_ai_no_guardrail',
-        },
-    )
-    builder.add_edge('sms_post_validate', 'sms_message_post_script_respond')
-    builder.add_edge('sms_append_ai_no_guardrail', 'sms_message_post_script_respond')
+    # builder.add_conditional_edges(
+    #     'sms_respond',
+    #     _should_run_guardrail,
+    #     {
+    #         'sms_post_validate': 'sms_post_validate',
+    #         'sms_message_post_script_respond': 'sms_append_ai_no_guardrail',
+    #     },
+    # )
+    # builder.add_edge('sms_post_validate', 'sms_message_post_script_respond')
+    # builder.add_edge('sms_append_ai_no_guardrail', 'sms_message_post_script_respond')
 
+    builder.add_edge('sms_respond', END)
     builder.add_edge('sms_escalation_request_respond', END)
     builder.add_edge('sms_out_of_scope_respond', END)
     builder.add_edge('sms_message_post_script_respond', END)
@@ -389,17 +427,18 @@ def get_graph_builder() -> StateGraph:
         }
     )
 
-    builder.add_conditional_edges(
-        'web_respond',
-        _should_run_guardrail,
-        {
-            'web_post_validate': 'web_post_validate',
-            'web_message_post_script_respond': 'web_append_ai_no_guardrail',
-        },
-    )
-    builder.add_edge('web_post_validate', 'web_message_post_script_respond')
-    builder.add_edge('web_append_ai_no_guardrail', 'web_message_post_script_respond')
+    # builder.add_conditional_edges(
+    #     'web_respond',
+    #     _should_run_guardrail,
+    #     {
+    #         'web_post_validate': 'web_post_validate',
+    #         'web_message_post_script_respond': 'web_append_ai_no_guardrail',
+    #     },
+    # )
+    # builder.add_edge('web_post_validate', 'web_message_post_script_respond')
+    # builder.add_edge('web_append_ai_no_guardrail', 'web_message_post_script_respond')
 
+    builder.add_edge('web_respond', END)
     builder.add_edge('web_escalation_request_respond', END)
     builder.add_edge('web_out_of_scope_respond', END)
     builder.add_edge('web_message_post_script_respond', END)

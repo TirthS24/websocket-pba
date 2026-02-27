@@ -102,6 +102,24 @@ def thread_connect(request):
 
     user_type = (body.get("user_type") or "").strip().lower()
     if user_type == "operator":
+        # Disconnect any existing LLM session for this thread (patient's connection) so operator has full control.
+        base = settings.LLM_SERVICE_URL.rstrip("/")
+        disconnect_url = f"{base}/thread/disconnect"
+        try:
+            import requests
+            resp = requests.post(
+                disconnect_url,
+                json={"thread_id": thread_id},
+                headers=_llm_headers(request),
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                was_connected = data.get("was_connected", False)
+                if was_connected:
+                    logger.info("Disconnected LLM for thread_id=%s (operator joined)", thread_id)
+        except Exception as e:
+            logger.warning("LLM disconnect call failed for thread_id=%s: %s", thread_id, e)
         # Do not connect to LLM for operator; they only broadcast to patients
         return JsonResponse({"status": "ok", "thread_id": thread_id, "llm_connected": False})
 

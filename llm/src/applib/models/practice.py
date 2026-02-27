@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import Optional
 
 
 class PracticeDetails(BaseModel):
@@ -7,4 +7,10 @@ class PracticeDetails(BaseModel):
     name: str
     email_address: Optional[str] = None
     phone_number: Optional[str] = None
-    hours: str
+    work_start_time: str
+    work_end_time: str
+    timezone: str
+
+    @property
+    def hours(self) -> str:
+        return f"Monday-Friday {self.work_start_time} - {self.work_end_time} {self.timezone}"

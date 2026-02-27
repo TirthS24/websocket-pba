@@ -182,11 +182,8 @@
 {% if invoice.total_network_discount != None %}
         <total_network_discount>${{ "%0.2f" | format(invoice.total_network_discount | float) }}</total_network_discount>
 {% endif %}
-{% if invoice.total_paid != None %}
-        <total_non_insurance_paid>${{ "%0.2f" | format(invoice.total_paid | float) }}</total_non_insurance_paid>
-{% endif %}
 {% if invoice.total_insurance != None %}
-        <total_insurance_paid>${{ "%0.2f" | format(invoice.total_insurance_paid | float) }}</total_insurance_paid>
+        <total_insurance_paid>${{ "%0.2f" | format(invoice.total_insurance | float) }}</total_insurance_paid>
 {% endif %}
     </summary>
 {% if invoice.claims %}

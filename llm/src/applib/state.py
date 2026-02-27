@@ -18,6 +18,5 @@ class State(TypedDict):
     messages: Annotated[list[AnyMessage], operator.add]
     channel: Channel
     invoice: NotRequired[Optional[Invoice]]
-    pending_ai_message: NotRequired[Optional[AnyMessage]]
     stripe_payment_link: NotRequired[Optional[str]]
     webapp_link: NotRequired[Optional[str]]

@@ -116,6 +116,7 @@
       <textarea id="msgA" placeholder="Type a message to broadcast as chat_message (to LLM or other users)"></textarea>
       <div class="row" style="margin-top: 0.5rem;">
         <button type="button" id="btnSendA">Send message</button>
+        <button type="button" id="btnSendRequestForAgentA" title="Send a chat message with request_for: Agent (LLM should ignore)">Send request_for=Agent test</button>
       </div>
     </section>
     <section>
@@ -135,6 +136,7 @@
       <textarea id="msgB" placeholder="Type a message to broadcast"></textarea>
       <div class="row" style="margin-top: 0.5rem;">
         <button type="button" id="btnSendB">Send message</button>
+        <button type="button" id="btnSendRequestForAgentB" title="Send a chat message with request_for: Agent (LLM should ignore)">Send request_for=Agent test</button>
       </div>
     </section>
   </div>
@@ -328,16 +330,42 @@
         log('User ' + which + ' sent chat: ' + text, 'out');
         msgEl.value = '';
       }
+      function sendRequestForAgentTest(which) {
+        const ws = which === 'A' ? wsA : wsB;
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+          log('User ' + which + ': not connected', 'err');
+          return;
+        }
+        const sessionId = threadId();
+        const payload = {
+          type: 'broadcast',
+          data: {
+            type: 'chat',
+            message: "Are you still here? I'll close this chat in 2 minutes, but you can start a new one anytime.",
+            thread_id: sessionId,
+            request_for: 'Agent',
+            timestamp: new Date().toISOString(),
+            id: String(Date.now()),
+            senderId: 'LLM',
+            senderName: 'LLM',
+            senderType: 'assistant'
+          }
+        };
+        ws.send(JSON.stringify(payload));
+        log('User ' + which + ' sent request_for=Agent test (thread_id=' + sessionId + ')', 'out');
+      }
 
       document.getElementById('btnConnectA').onclick = function () { connectUser('A'); };
       document.getElementById('btnDisconnectA').onclick = function () { disconnectUser('A'); };
       document.getElementById('btnSendA').onclick = function () { sendChat('A'); };
+      document.getElementById('btnSendRequestForAgentA').onclick = function () { sendRequestForAgentTest('A'); };
 
       // ---- User B WebSocket ----
       let wsB = null;
       document.getElementById('btnConnectB').onclick = function () { connectUser('B'); };
       document.getElementById('btnDisconnectB').onclick = function () { disconnectUser('B'); };
       document.getElementById('btnSendB').onclick = function () { sendChat('B'); };
+      document.getElementById('btnSendRequestForAgentB').onclick = function () { sendRequestForAgentTest('B'); };
 
       // ---- Thread history / summarize ----
       document.getElementById('btnHistory').onclick = async function () {

@@ -70,9 +70,6 @@ async def _evaluate_response(state: GuardrailState, channel_suffix: str) -> dict
 
     channel_prompts = getattr(prompts.guardrails.evaluate_response, channel_suffix)
     system_content = channel_prompts.system
-    structured_output_node = getattr(channel_prompts, "structured_output", None)
-    if structured_output_node is not None and hasattr(structured_output_node, "system"):
-        system_content = system_content + "\n\n" + structured_output_node.system
     user_template = channel_prompts.user
     user_content = user_template.format(
         user_query=state["user_query"],
@@ -80,9 +77,9 @@ async def _evaluate_response(state: GuardrailState, channel_suffix: str) -> dict
     )
 
     model_id = (
-        config.BEDROCK_MODEL_ID_SMS_RESPOND
+        config.BEDROCK_MODEL_ID_SMS_GUARDRAIL_EVALUATE
         if channel_suffix == "sms"
-        else config.BEDROCK_MODEL_ID_WEB_RESPOND
+        else config.BEDROCK_MODEL_ID_WEB_GUARDRAIL_EVALUATE
     )
 
     llm = (
@@ -93,16 +90,15 @@ async def _evaluate_response(state: GuardrailState, channel_suffix: str) -> dict
     messages = [SystemMessage(content=system_content), HumanMessage(content=user_content)]
 
     result: GuardrailEvaluation = await llm.ainvoke(messages)
-    logger.info(f"Guardrail evaluation result: {result}")
 
-    # result_flags: GuardrailState = {k: getattr(result, k) for k, _ in _METRIC_LABELS}
-    # if not _all_metrics_passed_from_state(result_flags):
-    #     failed = _issues_from_state(result_flags)
-    #     logger.info(
-    #         "Guardrail: response needs rewrite (%s metric(s) failed): %s",
-    #         len(failed),
-    #         failed[:5] if len(failed) > 5 else failed,
-    #     )
+    result_flags: GuardrailState = {k: getattr(result, k) for k, _ in _METRIC_LABELS}
+    if not _all_metrics_passed_from_state(result_flags):
+        failed = _issues_from_state(result_flags)
+        logger.info(
+            "Guardrail: response needs rewrite (%s metric(s) failed): %s",
+            len(failed),
+            failed[:5] if len(failed) > 5 else failed,
+        )
 
     return {
         "no_markdown": result.no_markdown,
@@ -120,16 +116,18 @@ async def _rewrite_response(state: GuardrailState, channel_suffix: str) -> dict:
     """Rewrite the response using the LLM; the corrected response is re-evaluated on the next loop."""
     channel_prompts = getattr(prompts.guardrails.rewrite_response, channel_suffix)
     system_content = channel_prompts.system
-    structured_output_node = getattr(channel_prompts, "structured_output", None)
-    if structured_output_node is not None and hasattr(structured_output_node, "system"):
-        system_content = system_content + "\n\n" + structured_output_node.system
+
     issues_str = "\n".join(f"- {i}" for i in _issues_from_state(state))
     user_content = channel_prompts.user.format(
         user_query=state["user_query"],
         response_to_check=state["response_to_check"],
         issues=issues_str,
     )
-    model_id = config.BEDROCK_MODEL_ID_SMS_RESPOND if channel_suffix == "sms" else config.BEDROCK_MODEL_ID_WEB_RESPOND
+    model_id = (
+        config.BEDROCK_MODEL_ID_SMS_GUARDRAIL_REWRITE
+        if channel_suffix == "sms"
+        else config.BEDROCK_MODEL_ID_WEB_GUARDRAIL_REWRITE
+    )
     llm = get_bedrock_converse_model(model_id=model_id)
     messages = [SystemMessage(content=system_content), HumanMessage(content=user_content)]
     response = await llm.ainvoke(messages)
