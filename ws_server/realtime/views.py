@@ -168,7 +168,7 @@ def thread_connect(request):
 def thread_summarize(request):
     """
     Proxy to LLM POST /thread/summarize.
-    Body: { "thread_id": "<id>" }. Response: { "thread_id": "...", "summary": "..." }.
+    Body: { "thread_id": "<id>", "messages": [...] (optional) }. Response: { "thread_id": "...", "summary": "..." }.
     """
     if not getattr(settings, "LLM_SERVICE_URL", None) or not settings.LLM_SERVICE_URL.strip():
         return JsonResponse({"detail": "LLM_SERVICE_URL not configured"}, status=503)
@@ -179,7 +179,10 @@ def thread_summarize(request):
     thread_id = (body.get("thread_id") or "").strip()
     if not thread_id:
         return JsonResponse({"detail": "thread_id is required"}, status=400)
-    return _llm_request("POST", "/thread/summarize", request=request, json_body={"thread_id": thread_id}, timeout=60)
+    json_body = {"thread_id": thread_id}
+    if "messages" in body and body["messages"] is not None:
+        json_body["messages"] = body["messages"]
+    return _llm_request("POST", "/thread/summarize", request=request, json_body=json_body, timeout=60)
 
 
 @require_http_methods(["POST"])

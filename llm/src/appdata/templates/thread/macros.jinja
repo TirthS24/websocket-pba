@@ -1,11 +1,13 @@
 {% macro render_chat_history(history) %}
+<conversation>
 {% for message in history %}
-{% if message.type == 'ai' %}
-<<AI Assistant>>: {{ message.content }}
-{{ '=' * 80 }}
-{% elif message.type == 'human' %}
-<<Human>>: {{ message.content }}
-{{ '=' * 80 }}
-{% endif %}
+    {% if message.type == "ai" %}
+        <ai turn="{{ loop.index }}">{{ message.content }}</ai>
+    {% elif message.type == "human" or message.type == "patient" %}
+        <patient turn="{{ loop.index }}">{{ message.content }}</patient>
+    {% elif message.type == "operator" %}
+        <operator turn="{{ loop.index }}">{{ message.content }}</operator>
+    {% endif %}
 {% endfor %}
+</conversation>
 {% endmacro %}

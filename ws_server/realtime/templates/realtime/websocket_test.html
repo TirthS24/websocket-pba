@@ -45,6 +45,7 @@
     button.danger { background: #f7768e; color: #1a1b26; }
     button.danger:hover { background: #ff9eaf; }
     .status { font-size: 0.875rem; color: #a9b1d6; }
+    .status code { font-family: ui-monospace, monospace; font-size: 0.8em; background: #16161e; padding: 0.1em 0.3em; border-radius: 4px; }
     .status.connected { color: #9ece6a; }
     .status.error { color: #f7768e; }
     #log {
@@ -152,7 +153,12 @@
 
   <section>
     <h2>Thread API (via ws_server)</h2>
+    <p class="status">Optional: paste patient–operator messages (JSON array) to include in summarize. Each item: <code>{"type": "patient"|"operator", "content": "..."}</code> (read_at, sent_at optional).</p>
     <div class="row">
+      <label for="humanMessagesJson">Human messages (optional)</label>
+    </div>
+    <textarea id="humanMessagesJson" placeholder='[{"type":"patient","content":"What is my outstanding amount?"},{"type":"operator","content":"Your amount to pay is $119."}]' style="min-height: 80px;"></textarea>
+    <div class="row" style="margin-top: 0.5rem;">
       <button type="button" id="btnHistory">Get thread history</button>
       <button type="button" id="btnSummarize">Get thread summarize</button>
     </div>
@@ -388,11 +394,26 @@
       document.getElementById('btnSummarize').onclick = async function () {
         const res = document.getElementById('apiResult');
         res.textContent = 'Loading...';
+        const body = { thread_id: threadId() };
+        const humanEl = document.getElementById('humanMessagesJson');
+        const humanText = (humanEl && humanEl.value || '').trim();
+        if (humanText) {
+          try {
+            const parsed = JSON.parse(humanText);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              body.messages = parsed;
+            }
+          } catch (e) {
+            res.textContent = 'Invalid human messages JSON: ' + e.message;
+            log('thread/summarize: invalid JSON ' + e.message, 'err');
+            return;
+          }
+        }
         try {
           const r = await fetch(apiUrl('/api/thread/summarize/'), {
             method: 'POST',
             headers: apiHeaders(),
-            body: JSON.stringify({ thread_id: threadId() })
+            body: JSON.stringify(body)
           });
           const data = await r.json().catch(() => ({}));
           res.textContent = r.ok ? ('Summary: ' + (data.summary || '').slice(0, 300) + ((data.summary || '').length > 300 ? '...' : '')) : ('Error: ' + (data.error || data.detail || r.status));

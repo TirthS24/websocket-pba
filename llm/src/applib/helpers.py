@@ -3,6 +3,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Literal
 from boto3 import client
+import re
 
 def get_utc_now() -> str:
     """Return current UTC datetime in ISO format for message timestamps (sent_at/read_at)."""
@@ -107,3 +108,13 @@ def redact_string(s: str, redaction_type: Literal['all', 'start', 'end'] = None)
         return "****" + s[-1]
     else:  # redaction_type == end
         return s[0] + "****"
+
+extra_whitespace_pattern = re.compile(r"\s+")
+
+def remove_extra_whitespace(s: str) -> str:
+    """
+    - removes any superfluous whitespace from a string
+    - replaces any whitespace with a single space character
+    - replaces repeated whitespace characters with a single space character
+    """
+    return extra_whitespace_pattern.sub(' ', s).strip()

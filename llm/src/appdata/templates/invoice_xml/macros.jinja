@@ -31,7 +31,7 @@
 {% macro render_payment(payment) %}
 <payment>
     <payment_status>{{ payment.payment_status }}</payment_status>
-    <payment_amount>{{ payment.payment_amount }}</payment_amount>
+    <payment_amount>${{ "%0.2f" | format(payment.payment_amount | float) }}</payment_amount>
     <payment_method>{{ payment.payment_method }}</payment_method>
     <transaction_date>{{ payment.transaction_date }}</transaction_date>
 </payment>
@@ -158,6 +158,21 @@
 {% endmacro %}
 {# / CLAIM #}
 
+{# PRACTICE #}
+{% macro render_practice_(practice) %}
+<practice>
+    <name>{{ practice.name }}</name>
+{% if practice.phone_number %}
+    <phone_number>{{ practice.phone_number_readable }}</phone_number>
+{% endif %}
+{% if practice.email_address %}
+    <email_address>{{ practice.email_address }}</email_address>
+{% endif %}
+    <operating_hours>{{ practice.hours }}</operating_hours>
+</practice>
+{% endmacro %}
+{# / PRACTICE #}
+
 {# INVOICE #}
 {% macro render_invoice(invoice, render_patient=true, render_practice=true, render_payments=true, render_services=true, render_adjustments=true) %}
 <invoice>
@@ -168,9 +183,7 @@
     </patient>
 {% endif %}
 {% if render_practice is sameas true and invoice.practice %}
-    <practice>
-        <name>{{ invoice.practice.name }}</name>
-    </practice>
+{{ render_practice_(invoice.practice) | indent(4, first=true) -}}
 {% endif %}
     <summary>
 {% if invoice.total_fee != None %}
@@ -192,6 +205,12 @@
 {{ render_claim(claim, render_services, render_adjustments) | indent(8, first=true) }}
 {%- endfor %}
     </claims>
+{% endif %}
+{% if render_payments is sameas true and invoice.payments  %}
+    <payments>
+{% for payment in invoice.payments %}
+{{ render_payment(payment) | indent(8, first=true) }}{%- endfor %}
+    </payments>
 {% endif %}
 </invoice>
 {% endmacro %}

@@ -1,7 +1,13 @@
 from applib.models.invoice import Invoice
 from applib.types import Channel
 from pydantic import BaseModel, ValidationError, model_validator
-from typing import Literal, Optional
+from typing import Literal, Optional, List
+
+class HumanConversation(BaseModel):
+    type: Literal['patient', 'operator']
+    content: str
+    read_at: Optional[str] = None
+    sent_at: Optional[str] = None
 
 class ChatRequest(BaseModel):
     message: str
@@ -24,7 +30,7 @@ class ThreadRequest(BaseModel):
 
 class SummarizeRequest(ThreadRequest):
     """Optional messages between patient and operator (human–human). When present, included in summary context."""
-    human_messages: Optional[str] = None
+    messages: Optional[List[HumanConversation]] = None
 
 class ThreadHistoryRequest(ThreadRequest):
     pass

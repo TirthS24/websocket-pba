@@ -1,7 +1,7 @@
 from applib.config import config
 from applib.graph.graph_manager import get_graph
 from applib.llms import get_bedrock_converse_model
-from applib.models.api import ChatRequest, EndEvent, ErrorEvent, EscalationEvent, SummarizeRequest, ThreadHistoryRequest, TokenEvent, SessionConnectRequest, SmsChatRequest, Channel
+from applib.models.api import ChatRequest, EndEvent, ErrorEvent, EscalationEvent, HumanConversation, SummarizeRequest, ThreadHistoryRequest, TokenEvent, SessionConnectRequest, SmsChatRequest, Channel
 from applib.prompts.templates import JinjaEnvironments
 from applib.helpers import get_utc_now, message_content_str
 from applib.prompts import prompts
@@ -10,6 +10,7 @@ from applib.textcontent import static_messages
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 from langchain_core.messages import AnyMessage, HumanMessage, SystemMessage, AIMessage
+from types import SimpleNamespace
 from typing import AsyncGenerator, Any
 from applib.graph.tracing import traceable, traced_astream_events, traced_ainvoke
 import hashlib
@@ -351,24 +352,28 @@ async def chat_sms_invoke(request: SmsChatRequest) -> str:
         raise
 
 
-async def summarize_thread(thread_id: str, human_messages: str | None = None) -> str:
+async def summarize_thread(thread_id: str, human_messages: list[HumanConversation] | None = None) -> str:
     """Generate thread summary from message history and optional patient–operator messages."""
     llm = get_bedrock_converse_model(model_id=config.BEDROCK_MODEL_ID_THREAD_SUMMARIZE)
     jinja_env = JinjaEnvironments.thread
     template = jinja_env.get_template("chat_history.jinja")
     message_history_with_ids = await get_message_history(thread_id)
     message_history = [msg for msg, _ in message_history_with_ids]
-    rendered_history = template.render(history=message_history)
-    human_messages_text = human_messages.strip() if human_messages else ""
+
+    # Combine thread history (patient–AI) with optional patient–operator messages for a single turn-based conversation
+    combined_history: list[Any] = list(message_history)
+    print(f"Human Messages: {human_messages}")
+    if human_messages:
+        for m in human_messages:
+            combined_history.append(SimpleNamespace(type=m.type, content=m.content))
+
+    print(f"Combined History: {combined_history}")
+    rendered_conversation = template.render(history=combined_history)
+    print(f"Rendered COnversation: {rendered_conversation}")
 
     messages = [
         SystemMessage(prompts.thread_summary.system),
-        HumanMessage(
-            prompts.thread_summary.user.format(
-                history=rendered_history,
-                human_messages=human_messages_text,
-            )
-        ),
+        HumanMessage(rendered_conversation),
     ]
 
     response = await traced_ainvoke(llm, messages)
@@ -402,9 +407,11 @@ async def session_disconnect(request: SessionConnectRequest) -> dict:
 
 @router.post("/thread/summarize", response_class=JSONResponse)
 async def summarize(request: SummarizeRequest) -> dict:
+    print(f"Request: {request}")
+    print(f"Messages: {request.messages}")
     return {
         "thread_id": request.thread_id,
-        "summary": await summarize_thread(request.thread_id, human_messages=request.human_messages),
+        "summary": await summarize_thread(request.thread_id, human_messages=request.messages),
     }
 
 def _stable_message_id(thread_id: str, index: int, content: str) -> str:
