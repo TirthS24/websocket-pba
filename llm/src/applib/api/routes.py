@@ -362,14 +362,11 @@ async def summarize_thread(thread_id: str, human_messages: list[HumanConversatio
 
     # Combine thread history (patient–AI) with optional patient–operator messages for a single turn-based conversation
     combined_history: list[Any] = list(message_history)
-    print(f"Human Messages: {human_messages}")
     if human_messages:
         for m in human_messages:
             combined_history.append(SimpleNamespace(type=m.type, content=m.content))
 
-    print(f"Combined History: {combined_history}")
     rendered_conversation = template.render(history=combined_history)
-    print(f"Rendered COnversation: {rendered_conversation}")
 
     messages = [
         SystemMessage(prompts.thread_summary.system),
@@ -407,8 +404,6 @@ async def session_disconnect(request: SessionConnectRequest) -> dict:
 
 @router.post("/thread/summarize", response_class=JSONResponse)
 async def summarize(request: SummarizeRequest) -> dict:
-    print(f"Request: {request}")
-    print(f"Messages: {request.messages}")
     return {
         "thread_id": request.thread_id,
         "summary": await summarize_thread(request.thread_id, human_messages=request.messages),
