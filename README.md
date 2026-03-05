@@ -28,6 +28,7 @@ docker compose up --build
   - `realtime/` (Django app): `consumers.py`, `routing.py`
 - `deploy/`: systemd unit example for Daphne (production)
 - `docs/TECHNICAL.md`: architecture & deployment notes
+- `docs/SERVER_BROADCAST.md`: how to send and receive **server messages** (broadcast to all sessions) over WebSocket — for FE integration
 
 ## Quickstart (Docker, recommended)
 
