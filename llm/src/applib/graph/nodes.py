@@ -12,7 +12,7 @@ from applib.textcontent import static_messages, structured_outputs
 from applib.types import Channel, SmsIntent, WebIntent
 from functools import partial
 from langchain_aws import ChatBedrockConverse
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.graph import StateGraph, START, END
 import logging
 import uuid
@@ -131,6 +131,39 @@ async def web_intent_router(state: State) -> WebIntent:
 #             "pending_ai_message": None,
 #         }
 
+
+def _wrap_ai_message(response: AIMessage) -> AIMessage:
+    """Build an AIMessage from the LLM response with id and timestamp for state."""
+    return AIMessage(
+        content=response.content,
+        tool_calls=getattr(response, "tool_calls", None),
+        id=str(uuid.uuid4()),
+        additional_kwargs={"timestamp": get_utc_now()},
+    )
+
+
+async def _invoke_llm_with_tool_handling(llm, messages: list, tool) -> tuple[AIMessage, list]:
+    """Invoke the LLM; if it returns tool_calls, run the tool and re-invoke until we get a final reply.
+
+    Returns (final_response, messages_to_append). messages_to_append always includes the full chain
+    (every AIMessage with tool_calls, their ToolMessages, and the final AIMessage) so that Bedrock
+    never sees tool_use without an immediate tool_result in the next message.
+    """
+    response = await llm.ainvoke(messages)
+    messages_to_append: list = []
+    while getattr(response, "tool_calls", None):
+        messages_to_append.append(_wrap_ai_message(response))
+        for tc in response.tool_calls:
+            args = tc.get("args") or {}
+            result = tool.invoke(args)
+            messages_to_append.append(
+                ToolMessage(content=str(result), tool_call_id=tc["id"])
+            )
+        response = await llm.ainvoke(messages + messages_to_append)
+    messages_to_append.append(_wrap_ai_message(response))
+    return response, messages_to_append
+
+
 async def sms_respond(state: State) -> dict:
     try:
         get_payment_link_tool = create_get_payment_link_tool(state)
@@ -149,18 +182,10 @@ async def sms_respond(state: State) -> dict:
             *state['messages'][-10:]
             ]
 
-        # Stream and aggregate so astream_events emits on_chat_model_stream for token-level streaming
-        acc = None
-        async for chunk in llm.astream(messages):
-            acc = chunk if acc is None else acc + chunk
-        response = acc
-        # Append to messages so thread history (api/thread/history) includes this AI reply
-        ai_message = AIMessage(
-            content=response.content,
-            id=str(uuid.uuid4()),
-            additional_kwargs={"timestamp": get_utc_now()},
+        response, messages_to_append = await _invoke_llm_with_tool_handling(
+            llm, messages, get_payment_link_tool
         )
-        return {"pending_ai_message": response, "messages": [ai_message]}
+        return {"pending_ai_message": response, "messages": messages_to_append}
 
     except Exception as e:
         logger.warning("SMS respond failed, falling back to out_of_scope: %s", e, exc_info=True)
@@ -209,15 +234,11 @@ async def web_respond(state: State) -> dict:
             SystemMessage(content=system_content),
             *state['messages'][-10:]
         ]
-        
-        response = await llm.ainvoke(messages)
-        # Append to messages so thread history (api/thread/history) includes this AI reply
-        ai_message = AIMessage(
-            content=response.content,
-            id=str(uuid.uuid4()),
-            additional_kwargs={"timestamp": get_utc_now()},
+
+        response, messages_to_append = await _invoke_llm_with_tool_handling(
+            llm, messages, get_payment_link_tool
         )
-        return {"pending_ai_message": response, "messages": [ai_message]}
+        return {"pending_ai_message": response, "messages": messages_to_append}
 
     except Exception as e:
         logger.warning("Web respond failed, falling back to out_of_scope: %s", e, exc_info=True)

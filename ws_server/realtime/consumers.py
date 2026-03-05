@@ -121,6 +121,9 @@ class SessionConsumer(AsyncWebsocketConsumer):
     # "ai" is used by the LLM service when it sends responses.
     ALLOWED_USER_TYPES = ("patient", "operator", "ai")
 
+    # Global group: every connection joins this so we can broadcast to all sessions (type=server).
+    SERVER_BROADCAST_GROUP = "server_broadcast"
+
     @staticmethod
     def _group_name(session_id: str) -> str:
         """
@@ -163,6 +166,8 @@ class SessionConsumer(AsyncWebsocketConsumer):
         # Join the session group so this socket receives broadcasts for session_id
         # across all instances (Redis channel layer fan-out).
         await self.channel_layer.group_add(self.group_name, self.channel_name)
+        # Join global group so this connection can receive server-wide broadcasts (type=server).
+        await self.channel_layer.group_add(self.SERVER_BROADCAST_GROUP, self.channel_name)
 
         # Optional: send an initial "connected" message for clients that want confirmation.
         await self.send_json(
@@ -182,6 +187,7 @@ class SessionConsumer(AsyncWebsocketConsumer):
 
         if self.group_name:
             await self.channel_layer.group_discard(self.group_name, self.channel_name)
+        await self.channel_layer.group_discard(self.SERVER_BROADCAST_GROUP, self.channel_name)
 
         if self.session_id and self._presence_registered:
             await remove_connection(session_id=self.session_id, connection_id=self.connection_id)
@@ -206,9 +212,10 @@ class SessionConsumer(AsyncWebsocketConsumer):
         # Example protocol:
         # - {"type":"hello","user_type":"admin","client_type":"web"} -> REQUIRED first message to set user_type
         # - {"type":"presence"} -> returns count + member list for this session_id
-        # - {"type":"broadcast","msg":"hi"} -> fan out (only allowed AFTER user_type is set)
+        # - {"type":"broadcast","msg":"hi"} -> fan out to this session only (only allowed AFTER user_type is set)
         #   (backward compat: you may also include user_type/client_type on broadcast; first one wins)
-        # - {"type":"broadcast","data":{...}} (backward compat) -> fan out to all listeners
+        # - {"type":"broadcast","data":{...}} (backward compat) -> fan out to all listeners in this session
+        # - {"type":"server","content":"hi, There"} -> broadcast to ALL active WebSocket connections on the server (all sessions)
         # - anything else -> echo back to sender only
 
         # user_type is mandatory and must be "patient" or "operator" (case-insensitive).
@@ -336,7 +343,39 @@ class SessionConsumer(AsyncWebsocketConsumer):
             )
             return
 
+        if msg.get("type") == "server":
+            # Broadcast to ALL active WebSocket connections across the server (all sessions).
+            if not self._presence_registered:
+                await self.send_json({"type": "error", "error": "user_type_required"})
+                await self.close(code=4401)
+                return
+            content = msg.get("content") if "content" in msg else msg.get("msg")
+            payload = {
+                "type": "server_message",
+                "content": content,
+                "session_id": self.session_id,
+                "connection_id": self.connection_id,
+                "user_type": self.user_type or "anonymous",
+                "sender_channel": self.channel_name,
+            }
+            await self.channel_layer.group_send(self.SERVER_BROADCAST_GROUP, payload)
+            return
+
         await self.send_json({"type": "echo", "data": msg})
+
+    async def server_message(self, event: Dict[str, Any]) -> None:
+        """Relay server-wide broadcast (type=server) to this connection. Skip the sender."""
+        if event.get("sender_channel") == self.channel_name:
+            return
+        await self.send_json(
+            {
+                "type": "server",
+                "content": event.get("content"),
+                "from_session_id": event.get("session_id"),
+                "from_connection_id": event.get("connection_id"),
+                "from_user_type": event.get("user_type", "anonymous"),
+            }
+        )
 
     async def session_message(self, event: Dict[str, Any]) -> None:
         # Do not echo back to the sender (removes duplicate session_message after user broadcast)

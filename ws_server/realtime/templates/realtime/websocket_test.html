@@ -81,7 +81,7 @@
 </head>
 <body>
   <h1>WebSocket + LLM + Two Users Test</h1>
-  <p class="status">Use same session/thread id for all connections. Connect LLM first, then connect two users and send chat messages.</p>
+  <p class="status">Use same session/thread id for LLM and chat. For <strong>server broadcast</strong> test: connect User A to session <code>x</code> and User B to session <code>y</code> (different session IDs); then click "Send type=server" on one — the message appears on all connected WebSockets (all sessions).</p>
 
   <section>
     <h2>Session</h2>
@@ -103,6 +103,10 @@
     <section>
       <h2>User A</h2>
       <div class="row">
+        <label for="sessionIdA">Session ID</label>
+        <input type="text" id="sessionIdA" value="" placeholder="e.g. session-x (default: thread id)">
+      </div>
+      <div class="row">
         <label>User type</label>
         <select id="userAType"><option value="patient">patient</option><option value="operator">operator</option></select>
       </div>
@@ -118,10 +122,15 @@
       <div class="row" style="margin-top: 0.5rem;">
         <button type="button" id="btnSendA">Send message</button>
         <button type="button" id="btnSendRequestForAgentA" title="Send a chat message with request_for: Agent (LLM should ignore)">Send request_for=Agent test</button>
+        <button type="button" id="btnSendServerA" title="Broadcast to ALL WebSockets on the server (all sessions)">Send type=server</button>
       </div>
     </section>
     <section>
       <h2>User B</h2>
+      <div class="row">
+        <label for="sessionIdB">Session ID</label>
+        <input type="text" id="sessionIdB" value="session-b" placeholder="e.g. session-y">
+      </div>
       <div class="row">
         <label>User type</label>
         <select id="userBType"><option value="patient">patient</option><option value="operator">operator</option></select>
@@ -138,6 +147,7 @@
       <div class="row" style="margin-top: 0.5rem;">
         <button type="button" id="btnSendB">Send message</button>
         <button type="button" id="btnSendRequestForAgentB" title="Send a chat message with request_for: Agent (LLM should ignore)">Send request_for=Agent test</button>
+        <button type="button" id="btnSendServerB" title="Broadcast to ALL WebSockets on the server (all sessions)">Send type=server</button>
       </div>
     </section>
   </div>
@@ -197,6 +207,12 @@
       function threadId() {
         return document.getElementById('threadId').value.trim() || 'test-session-1';
       }
+      function sessionIdFor(which) {
+        const el = document.getElementById(which === 'A' ? 'sessionIdA' : 'sessionIdB');
+        const v = (el && el.value || '').trim();
+        if (v) return v;
+        return which === 'A' ? threadId() : 'session-b';
+      }
 
       const logEl = document.getElementById('log');
       function log(msg, cls) {
@@ -244,7 +260,7 @@
       // Browser WebSocket API cannot set custom headers; we pass X-API-KEY via Sec-WebSocket-Protocol
       // subprotocols: ['x-api-key', API_KEY] so the server can read the key from the handshake.
       function connectUser(which) {
-        const id = threadId();
+        const id = sessionIdFor(which);
         const path = '/ws/session/' + encodeURIComponent(id) + '/';
         const url = wsUrl(path);
         const userSelect = document.getElementById(which === 'A' ? 'userAType' : 'userBType');
@@ -271,6 +287,9 @@
             if (msg.type === 'hello_ack') {
               statusEl.textContent = 'Connected as ' + userType;
               statusEl.className = 'status connected';
+            }
+            if (msg.type === 'server') {
+              log('User ' + which + ' [SERVER BROADCAST] from_session=' + (msg.from_session_id || '') + ' content=' + (msg.content || ''), 'sys');
             }
             if ((msg.type === 'broadcast') && msg.data) {
               const d = msg.data;
@@ -314,7 +333,7 @@
           log('User ' + which + ': not connected', 'err');
           return;
         }
-        const data = { type: 'chat', message: text, channel: 'web', thread_id: threadId() };
+        const data = { type: 'chat', message: text, channel: 'web', thread_id: sessionIdFor(which) };
         const invoiceEl = document.getElementById('invoiceJson');
         const invoiceText = (invoiceEl && invoiceEl.value || '').trim();
         if (invoiceText) {
@@ -342,7 +361,7 @@
           log('User ' + which + ': not connected', 'err');
           return;
         }
-        const sessionId = threadId();
+        const sessionId = sessionIdFor(which);
         const payload = {
           type: 'broadcast',
           data: {
@@ -360,11 +379,24 @@
         ws.send(JSON.stringify(payload));
         log('User ' + which + ' sent request_for=Agent test (thread_id=' + sessionId + ')', 'out');
       }
+      function sendServerBroadcast(which) {
+        const ws = which === 'A' ? wsA : wsB;
+        const msgEl = document.getElementById(which === 'A' ? 'msgA' : 'msgB');
+        const content = (msgEl && msgEl.value || '').trim() || ('Hello from User ' + which + ' (session ' + sessionIdFor(which) + ')');
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+          log('User ' + which + ': not connected', 'err');
+          return;
+        }
+        const payload = { type: 'server', content: content };
+        ws.send(JSON.stringify(payload));
+        log('User ' + which + ' sent type=server: ' + content, 'out');
+      }
 
       document.getElementById('btnConnectA').onclick = function () { connectUser('A'); };
       document.getElementById('btnDisconnectA').onclick = function () { disconnectUser('A'); };
       document.getElementById('btnSendA').onclick = function () { sendChat('A'); };
       document.getElementById('btnSendRequestForAgentA').onclick = function () { sendRequestForAgentTest('A'); };
+      document.getElementById('btnSendServerA').onclick = function () { sendServerBroadcast('A'); };
 
       // ---- User B WebSocket ----
       let wsB = null;
@@ -372,6 +404,7 @@
       document.getElementById('btnDisconnectB').onclick = function () { disconnectUser('B'); };
       document.getElementById('btnSendB').onclick = function () { sendChat('B'); };
       document.getElementById('btnSendRequestForAgentB').onclick = function () { sendRequestForAgentTest('B'); };
+      document.getElementById('btnSendServerB').onclick = function () { sendServerBroadcast('B'); };
 
       // ---- Thread history / summarize ----
       document.getElementById('btnHistory').onclick = async function () {

@@ -454,6 +454,9 @@ async def thread_history(request: ThreadHistoryRequest) -> dict:
     last_timestamp: str | None = None
     messages: list[dict[str, Any]] = []
     for index, (msg, checkpoint_id) in enumerate(history):
+        # Skip tool messages so thread history only shows patient/ai (no internal tool results)
+        if getattr(msg, "type", None) == "tool":
+            continue
         item = _message_to_history_item(
             msg,
             previous_id,
