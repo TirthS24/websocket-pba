@@ -308,11 +308,17 @@ async def chat_sms_invoke(request: SmsChatRequest) -> str:
     on_chat_model_stream (sms_respond) and on_chain_stream (static SMS nodes). The graph
     substitutes {LINK_TO_WEBAPP} in static messages at execution time. Returns the entire
     AI message plus static post_script in one string for the REST response.
+
+    For in-scope messages the graph goes sms_respond -> END (no post_script node), so we
+    manually append the SMS post_script here with \\n\\n between AI and static. This is not written to checkpoint
+    state, so chat history does not contain duplicate static post_script messages.
     """
     graph_config = {"configurable": {"thread_id": request.thread_id}}
     input_state = create_state_from_sms_request(request)
     ai_response_parts: list[str] = []
     static_parts: list[str] = []
+    # Track which static node ran so we only append post_script for in-scope (no escalation/oos).
+    static_from_escalation_or_oos = False
 
     try:
         graph = await get_graph()
@@ -340,12 +346,22 @@ async def chat_sms_invoke(request: SmsChatRequest) -> str:
 
             if node_name == "sms_escalation_request_respond":
                 static_parts.append(text)
+                static_from_escalation_or_oos = True
             elif node_name == "sms_out_of_scope_respond":
                 static_parts.append(text)
+                static_from_escalation_or_oos = True
             elif node_name == "sms_message_post_script_respond":
                 static_parts.append(text)
 
         ai_response = "".join(ai_response_parts).strip() if ai_response_parts else ""
+        # In-scope: we have AI content and did not run escalation/oos. Graph does not run
+        # sms_message_post_script_respond for in-scope, so append post_script here (not in state).
+        # In order to append static post_script message in the single API response.
+        if ai_response and not static_from_escalation_or_oos:
+            post_script = get_message_post_script_for_channel(
+                Channel.SMS, request.webapp_link or ""
+            )
+            return f"{ai_response}\n\n\n\n{post_script}"
         all_parts = [ai_response, *static_parts]
         return "\n\n".join(p for p in all_parts if p)
     except Exception:
