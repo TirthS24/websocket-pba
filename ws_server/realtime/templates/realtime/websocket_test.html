@@ -153,12 +153,22 @@
   </div>
 
   <section>
+    <h2>Realtime message</h2>
+    <p class="status">Streamed response from the LLM (token chunks appended here).</p>
+    <div id="realtimeMessage" style="min-height: 80px; font-family: ui-monospace, monospace; font-size: 0.9rem; white-space: pre-wrap; word-break: break-word; background: #16161e; border: 1px solid #3b4261; border-radius: 6px; padding: 0.75rem; max-height: 240px; overflow-y: auto;"></div>
+  </section>
+
+  <section>
     <h2>Chat payload (optional invoice)</h2>
-    <p class="status">Paste invoice JSON to include with the next chat message (same shape as temp.json: practice, patient, claims, stripe_payment_link, web_app_link).</p>
+    <p class="status">Optional: invoice object (JSON) and Stripe payment link. Rest of the websocket payload (message, channel, thread_id) is sent as-is.</p>
     <div class="row">
       <label for="invoiceJson">Invoice JSON (optional)</label>
     </div>
-    <textarea id="invoiceJson" placeholder='Optional: { "practice": {...}, "patient": {...}, "claims": [...], "stripe_payment_link": "...", "web_app_link": "..." }' style="min-height: 120px;"></textarea>
+    <textarea id="invoiceJson" placeholder='Optional: { "practice": {...}, "patient": {...}, "claims": [...] }' style="min-height: 100px;"></textarea>
+    <div class="row" style="margin-top: 0.5rem;">
+      <label for="stripePaymentLink">Stripe payment link (optional)</label>
+      <input type="text" id="stripePaymentLink" placeholder="https://checkout.stripe.com/..." style="flex: 1; min-width: 200px;">
+    </div>
   </section>
 
   <section>
@@ -294,10 +304,19 @@
             if ((msg.type === 'broadcast') && msg.data) {
               const d = msg.data;
               const t = d.type || d.event;
-              if (t === 'token' && d.content) log('User ' + which + ' [token] ' + d.content, 'in');
+              if (t === 'token' && d.content) {
+                log('User ' + which + ' [token] ' + d.content, 'in');
+                const realtimeEl = document.getElementById('realtimeMessage');
+                if (realtimeEl) {
+                  realtimeEl.textContent += d.content;
+                  realtimeEl.scrollTop = realtimeEl.scrollHeight;
+                }
+              }
               if (t === 'static' && d.content) log('User ' + which + ' [static] ' + d.content, 'in');
               if (t === 'escalation') log('User ' + which + ' [escalation] ' + JSON.stringify(d), 'sys');
-              if (t === 'end') log('User ' + which + ' [end]', 'in');
+              if (t === 'end') {
+                log('User ' + which + ' [end]', 'in');
+              }
               if (t === 'error') log('User ' + which + ' [error] ' + (d.content || d.message || ''), 'err');
             }
           } catch (_) {
@@ -341,19 +360,20 @@
             const invoiceObj = JSON.parse(invoiceText);
             if (invoiceObj && typeof invoiceObj === 'object') {
               data.invoice = invoiceObj.invoice != null ? invoiceObj.invoice : invoiceObj;
-              if (data.invoice) {
-                data.stripe_payment_link = data.invoice.stripe_payment_link || invoiceObj.stripe_payment_link;
-                data.web_app_link = data.invoice.web_app_link || invoiceObj.web_app_link;
-              }
             }
           } catch (e) {
             log('Invalid invoice JSON: ' + e.message, 'err');
           }
         }
+        const stripeLinkEl = document.getElementById('stripePaymentLink');
+        const stripeLink = (stripeLinkEl && stripeLinkEl.value || '').trim();
+        if (stripeLink) data.stripe_payment_link = stripeLink;
         const payload = { type: 'broadcast', data: data };
         ws.send(JSON.stringify(payload));
         log('User ' + which + ' sent chat: ' + text, 'out');
         msgEl.value = '';
+        const realtimeEl = document.getElementById('realtimeMessage');
+        if (realtimeEl) realtimeEl.textContent = '';
       }
       function sendRequestForAgentTest(which) {
         const ws = which === 'A' ? wsA : wsB;

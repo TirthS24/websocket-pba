@@ -98,6 +98,18 @@ class Claim835Data(BaseModel):
     def has_adjustments(self) -> bool:
         return any(map(lambda x: x.has_adjustments, self.services))
 
+
+# == ClaimDetails == #
+# Financial metadata for individual services within an internal Claim
+class ClaimDetails(BaseModel):
+    description: str  # Service Name
+    date_of_service: str  # Date of service
+    due: float  # due of particular claim detail (service)
+    fee: float  # fee of particular claim detail (service)
+    insurance: float  # insurance of particular claim detail (service)
+    network_discount: float  # network_discount of particular claim detail (service)
+    paid: float  # paid of particular claim detail (service)
+
 # === ClaimDBData ===
 # Represents claim-level data enriched or tracked internally in the database.
 class Claim(BaseModel):
@@ -113,7 +125,8 @@ class Claim(BaseModel):
     resolved_at: Optional[str]
     provider_name: Optional[str]
     is_resolved_as_not_present: Optional[str | bool] = None
-    edi_mappings: Optional[List[Claim835Data]] = [] # Need to make it mandatory later
+    edi_mappings: Optional[List[Claim835Data]] = []
+    claim_details: Optional[List[ClaimDetails]] = []
     adjustments: Optional[List[Adjustment]] = []
     payments: Optional[List[Payment]] = []
 

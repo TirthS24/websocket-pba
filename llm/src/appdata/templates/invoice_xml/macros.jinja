@@ -116,6 +116,21 @@
 {% endmacro %}
 {# / CLAIM 835 #}
 
+{# CLAIM DETAIL #}
+{% macro render_claim_detail(claim_detail) %}
+<service_detail>
+    <date_of_service>{{ claim_detail.date_of_service }}</date_of_service>
+    <description>{{ claim_detail.description }}</description>
+    <service_code>{{ claim_detail.description }}</service_code>
+    <fee>${{ "%0.2f" | format(claim_detail.fee | float) }}</fee>
+    <insurance>${{ "%0.2f" | format(claim_detail.insurance | float) }}</insurance>
+    <network_discount>${{ "%0.2f" | format(claim_detail.network_discount | float) }}</network_discount>
+    <due>${{ "%0.2f" | format(claim_detail.due | float) }}</due>
+    <paid>${{ "%0.2f" | format(claim_detail.paid | float) }}</paid>
+</service_detail>
+{% endmacro %}
+{# /CLAIM DETAIL #}
+
 {# CLAIM #}
 {% macro render_claim(claim, render_services=true, render_adjustments=true) %}
 <claim>
@@ -146,6 +161,12 @@
 {{ render_835(claim_835, render_services, render_adjustments) | indent(8, first=true) }}
 {%- endfor %}
     </remittances>
+{% elif claim.claim_details %}
+    <service_details>
+{% for claim_detail in claim.claim_details %}
+    {{- render_claim_detail(claim_detail) | indent(8, first=true) }}
+{%- endfor %}
+    </service_details>
 {% endif %}
 {%- if claim.adjustments and not claim.has_service_level_adjustments %}
     <adjustments>

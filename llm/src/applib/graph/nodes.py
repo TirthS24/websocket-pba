@@ -19,6 +19,25 @@ import uuid
 
 logger = logging.getLogger(__name__)
 
+
+def _messages_safe_for_bedrock(messages: list) -> list:
+    """Return a subset of messages safe for Bedrock Converse: no tool_use without tool_result.
+
+    Bedrock requires every tool_use block to be immediately followed by a tool_result in the
+    message list. The intent router does not need tool messages or assistant turns that only
+    contain tool_calls, so we drop those to avoid ValidationException when the last N messages
+    contain an AIMessage with tool_calls but not the following ToolMessage(s).
+    """
+    result = []
+    for msg in messages:
+        if isinstance(msg, ToolMessage):
+            continue
+        if isinstance(msg, AIMessage) and getattr(msg, "tool_calls", None):
+            continue
+        result.append(msg)
+    return result
+
+
 async def passthrough(state: State) -> dict:
     """Passthrough serves as target node"""
     return {}
@@ -47,7 +66,7 @@ async def sms_intent_router(state: State) -> SmsIntent:
 
         messages = [
             SystemMessage(content=system_content),
-            *state['messages'][-3:]
+            *_messages_safe_for_bedrock(state['messages'][-3:]),
         ]
 
         response: SmsIntentClassification = await llm.ainvoke(messages)
@@ -71,7 +90,7 @@ async def web_intent_router(state: State) -> WebIntent:
 
         messages = [
             SystemMessage(content=system_content),
-            *state['messages'][-3:]
+            *_messages_safe_for_bedrock(state['messages'][-3:]),
         ]
 
         response: WebIntentClassification = await llm.ainvoke(messages)
