@@ -1,0 +1,77 @@
+[
+  {
+    "name": "PBADevlive-smsRouter",
+    "status": "ACTIVE",
+    "arn": "arn:aws:bedrock:us-east-2:819245696044:application-inference-profile/suqr4vjz7fzt"
+  },
+  {
+    "name": "PBADevlive-webRouter",
+    "status": "ACTIVE",
+    "arn": "arn:aws:bedrock:us-east-2:819245696044:application-inference-profile/qrx7itdmi7rf"
+  },
+  {
+    "name": "PBADevlive-threadSummarize",
+    "status": "ACTIVE",
+    "arn": "arn:aws:bedrock:us-east-2:819245696044:application-inference-profile/85sonme7eax7"
+  },
+  {
+    "name": "PBADevlive-smsRespond",
+    "status": "ACTIVE",
+    "arn": "arn:aws:bedrock:us-east-2:819245696044:application-inference-profile/t7p3y20y0c26"
+  },
+  {
+    "name": "PBADevlive-webRespond",
+    "status": "ACTIVE",
+    "arn": "arn:aws:bedrock:us-east-2:819245696044:application-inference-profile/ir5bvcg5oy3c"
+  },
+  {
+    "name": "PBATestlive-smsRouter",
+    "status": "ACTIVE",
+    "arn": "arn:aws:bedrock:us-east-2:819245696044:application-inference-profile/vank1djm055b"
+  },
+  {
+    "name": "PBATestlive-webRouter",
+    "status": "ACTIVE",
+    "arn": "arn:aws:bedrock:us-east-2:819245696044:application-inference-profile/q7xrgsj7secm"
+  },
+  {
+    "name": "PBATestlive-threadSummarize",
+    "status": "ACTIVE",
+    "arn": "arn:aws:bedrock:us-east-2:819245696044:application-inference-profile/iodm3a5rt1va"
+  },
+  {
+    "name": "PBATestlive-smsRespond",
+    "status": "ACTIVE",
+    "arn": "arn:aws:bedrock:us-east-2:819245696044:application-inference-profile/dixn5hw978os"
+  },
+  {
+    "name": "PBATestlive-webRespond",
+    "status": "ACTIVE",
+    "arn": "arn:aws:bedrock:us-east-2:819245696044:application-inference-profile/qy6k3jsaacd0"
+  },
+  {
+    "name": "PBALive-smsRouter",
+    "status": "ACTIVE",
+    "arn": "arn:aws:bedrock:us-east-2:819245696044:application-inference-profile/o4dh9f8qkjgn"
+  },
+  {
+    "name": "PBALive-webRouter",
+    "status": "ACTIVE",
+    "arn": "arn:aws:bedrock:us-east-2:819245696044:application-inference-profile/60lgwecwmd5t"
+  },
+  {
+    "name": "PBALive-threadSummarize",
+    "status": "ACTIVE",
+    "arn": "arn:aws:bedrock:us-east-2:819245696044:application-inference-profile/sxal62vvl9qe"
+  },
+  {
+    "name": "PBALive-smsRespond",
+    "status": "ACTIVE",
+    "arn": "arn:aws:bedrock:us-east-2:819245696044:application-inference-profile/h6s6rgdgjzue"
+  },
+  {
+    "name": "PBALive-webRespond",
+    "status": "ACTIVE",
+    "arn": "arn:aws:bedrock:us-east-2:819245696044:application-inference-profile/1vo32kgx2k0y"
+  }
+]

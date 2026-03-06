@@ -584,6 +584,34 @@ class WebSocketPbaStack(Stack):
                 ecs.PortMapping(container_port=container_port, protocol=ecs.Protocol.TCP)
             )
 
+            # --- Task role for LLM: Bedrock inference profile invoke + get ---
+            llm_task_role = iam.Role(
+                self,
+                "LLMTaskRole",
+                assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
+                description="Task role for LLM ECS tasks (Bedrock inference profiles)",
+            )
+            inference_profile_arn = f"arn:aws:bedrock:{self.region}:{self.account}:application-inference-profile/*"
+            llm_task_role.add_to_principal_policy(
+                iam.PolicyStatement(
+                    sid="AllowBedrockInvokeViaInferenceProfile",
+                    effect=iam.Effect.ALLOW,
+                    actions=[
+                        "bedrock:InvokeModel",
+                        "bedrock:InvokeModelWithResponseStream",
+                    ],
+                    resources=[inference_profile_arn],
+                )
+            )
+            llm_task_role.add_to_principal_policy(
+                iam.PolicyStatement(
+                    sid="AllowGetInferenceProfile",
+                    effect=iam.Effect.ALLOW,
+                    actions=["bedrock:GetInferenceProfile"],
+                    resources=["*"],
+                )
+            )
+
             # --- Task definition: LLM only (no Redis; port 7980) ---
             llm_task_definition = ecs.FargateTaskDefinition(
                 self,
@@ -591,6 +619,7 @@ class WebSocketPbaStack(Stack):
                 memory_limit_mib=2048,
                 cpu=1024,
                 execution_role=task_execution_role,
+                task_role=llm_task_role,
                 runtime_platform=runtime_platform,
             )
             llm_container = llm_task_definition.add_container(
