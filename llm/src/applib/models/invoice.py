@@ -19,3 +19,11 @@ class Invoice(BaseModel):
     total_network_discount: Optional[float] = None # TOTAL NETWORK DISCOUNT; the contractually agreed-upon amount that has been removed from the original charge
     total_paid: Optional[float] = None # TOTAL PAYMENTS made by patient
     total_insurance: Optional[float] = None # TOTAL PAYMENTS made by insurance
+
+    @property
+    def payments(self) -> list[Payment]:
+        return [
+            payment
+            for claim in self.claims
+            for payment in claim.payments
+        ]

@@ -501,8 +501,16 @@ class WebSocketPbaStack(Stack):
                 "LLMSecret",
                 secret_name=f"pba-{environment}/llm-server-secrets",
             )
-            ws_secret.grant_read(task_execution_role)
+            # Execution role: ECS injects LLM secrets into task env; ws_server fetches its 3 secrets at runtime
             llm_secret.grant_read(task_execution_role)
+            # Task role for ws_server: read ws-server-secrets at runtime (no ECS injection)
+            ws_task_role = iam.Role(
+                self,
+                "WsTaskRole",
+                assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
+                description="Task role for ws_server ECS tasks (Secrets Manager read)",
+            )
+            ws_secret.grant_read(ws_task_role)
             # When we created RDS in this stack, LLM gets PSQL_* from the RDS-generated secret (populated by RDS in Secrets Manager)
             if rds_secret is not None:
                 rds_secret.grant_read(task_execution_role)
@@ -512,6 +520,7 @@ class WebSocketPbaStack(Stack):
             ws_alb_dns = alb.load_balancer_dns_name
             llm_alb_dns = llm_alb.load_balancer_dns_name
             env_overrides = {
+                "ENVIRONMENT": environment,
                 "REDIS_URL": f"redis://{redis_primary}:{redis_port_attr}/0",
                 "WS_SERVER_URL": f"ws://{ws_alb_dns}",
                 "WS_SERVER_ORIGIN": f"http://{ws_alb_dns}",
@@ -528,11 +537,7 @@ class WebSocketPbaStack(Stack):
             llm_env = {k: v for k, v in full_env.items() if k != "REDIS_URL"}
             llm_env["APPDATA_FOLDER_PATH"] = "/app/appdata"
 
-            ws_secrets = {
-                "DJANGO_SECRET_KEY": ecs.Secret.from_secrets_manager(ws_secret, field="DJANGO_SECRET_KEY"),
-                "AUTH_API_KEY": ecs.Secret.from_secrets_manager(ws_secret, field="AUTH_API_KEY"),
-                "LLM_SERVICE_AUTH": ecs.Secret.from_secrets_manager(ws_secret, field="LLM_SERVICE_AUTH"),
-            }
+            # ws_server does not get secrets from ECS; it fetches DJANGO_SECRET_KEY, AUTH_API_KEY, LLM_SERVICE_AUTH from Secrets Manager at startup (task role has read access).
             # PSQL_* and other LLM secrets always from existing pba-{env}/llm-server-secrets (updated by sync when RDS is created in stack)
             llm_secrets = {
                 "PSQL_BOT_USERNAME": ecs.Secret.from_secrets_manager(llm_secret, field="PSQL_BOT_USERNAME"),
@@ -568,6 +573,7 @@ class WebSocketPbaStack(Stack):
                 memory_limit_mib=2048,
                 cpu=1024,
                 execution_role=task_execution_role,
+                task_role=ws_task_role,
                 runtime_platform=runtime_platform,
             )
             ws_container = ws_task_definition.add_container(
@@ -578,7 +584,6 @@ class WebSocketPbaStack(Stack):
                     log_group=log_group,
                 ),
                 environment=ws_env,
-                secrets=ws_secrets,
             )
             ws_container.add_port_mappings(
                 ecs.PortMapping(container_port=container_port, protocol=ecs.Protocol.TCP)

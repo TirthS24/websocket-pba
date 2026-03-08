@@ -84,11 +84,11 @@ def get_postgres_conn_string(user: str, password: str, database_name: str, host:
 #     return "\n".join(lines)
 
 def get_secret_from_arn(secret_arn: str) -> dict[str, str]:
-    r = client("secretsmanager").get_secret_value(SecretId=secret_arn)
+    r = client("secretsmanager", region_name='us-east-2').get_secret_value(SecretId=secret_arn)
     return json.loads(r["SecretString"])
 
 
-def redact_string(s: str, redaction_type: Literal['all', 'start', 'end'] = None) -> str:
+def redact_string(s: str, redaction_type: Literal['all', 'start', 'end', 'none'] = None) -> str:
     """
     Redacts all or some of the input string s
     Redaction type can be 'all', 'start', 'end';
@@ -96,7 +96,7 @@ def redact_string(s: str, redaction_type: Literal['all', 'start', 'end'] = None)
         start - beginning of string redacted
         end - end of string redacted
     """
-    valid_redaction_types = {'all', 'start', 'end'}
+    valid_redaction_types = {'all', 'start', 'end', 'none'}
     redaction_type = redaction_type.lower() if redaction_type else 'end'
     redaction_type = redaction_type if redaction_type in valid_redaction_types else 'end'
 
@@ -106,8 +106,10 @@ def redact_string(s: str, redaction_type: Literal['all', 'start', 'end'] = None)
         return "*****"
     elif redaction_type == "start":
         return "****" + s[-1]
-    else:  # redaction_type == end
+    elif redaction_type == "end":
         return s[0] + "****"
+    else:      # redaction_type is "none"
+        return s
 
 extra_whitespace_pattern = re.compile(r"\s+")
 

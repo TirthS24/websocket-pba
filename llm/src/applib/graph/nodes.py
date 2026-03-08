@@ -204,14 +204,13 @@ async def sms_respond(state: State) -> dict:
         response, messages_to_append = await _invoke_llm_with_tool_handling(
             llm, messages, get_payment_link_tool
         )
-        return {"pending_ai_message": response, "messages": messages_to_append}
+        return {"messages": messages_to_append}
 
     except Exception as e:
         logger.warning("SMS respond failed, falling back to out_of_scope: %s", e, exc_info=True)
         fallback = static_messages.out_of_scope.sms
         return {
             "messages": [AIMessage(content=[{"type": "text", "text": fallback}], id=str(uuid.uuid4()), additional_kwargs={"timestamp": get_utc_now()})],
-            "pending_ai_message": None,
         }
 
 
@@ -238,9 +237,9 @@ async def web_respond(state: State) -> dict:
             template = JinjaEnvironments.invoice_xml.get_template('invoice.jinja')
             invoice_rendered = template.render(
                 invoice=state['invoice'],
-                render_patient=False,
+                render_patient=True,
                 render_practice=True,
-                render_payments=False,
+                render_payments=True,
                 render_services=True,
                 render_adjustments=True
             )
@@ -257,14 +256,13 @@ async def web_respond(state: State) -> dict:
         response, messages_to_append = await _invoke_llm_with_tool_handling(
             llm, messages, get_payment_link_tool
         )
-        return {"pending_ai_message": response, "messages": messages_to_append}
+        return {"messages": messages_to_append}
 
     except Exception as e:
         logger.warning("Web respond failed, falling back to out_of_scope: %s", e, exc_info=True)
         fallback = static_messages.out_of_scope.web
         return {
             "messages": [AIMessage(content=[{"type": "text", "text": fallback}], id=str(uuid.uuid4()), additional_kwargs={"timestamp": get_utc_now()})],
-            "pending_ai_message": None,
         }
 
 def _out_of_scope_fallback_for_channel(channel: Channel) -> str:
