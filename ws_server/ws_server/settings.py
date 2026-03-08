@@ -16,8 +16,10 @@ from typing import List
 
 from corsheaders.defaults import default_headers as _cors_default_headers
 
-# Secrets are loaded from AWS Secrets Manager by ws_server.env_bootstrap,
-# which is imported before this module in manage.py, asgi.py, and wsgi.py.
+# The three secrets (DJANGO_SECRET_KEY, AUTH_API_KEY, LLM_SERVICE_AUTH) are loaded
+# from AWS Secrets Manager by ws_server.env_bootstrap (imported before this module
+# in manage.py, asgi.py, and wsgi.py). They are not injected into the ECS task
+# environment; the app fetches them directly from Secrets Manager at startup.
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 

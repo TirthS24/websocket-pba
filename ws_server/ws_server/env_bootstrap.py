@@ -1,16 +1,23 @@
 """
-Load environment variables from AWS Secrets Manager before Django settings are loaded.
+Load the three ws_server secrets from AWS Secrets Manager before Django settings are loaded.
 Import this module first in manage.py, asgi.py, and wsgi.py so os.environ is populated
 before ws_server.settings (and any _env / _env_bool / _env_csv) are evaluated.
 
-Secret name: set WS_SECRET_NAME (e.g. "pba-dev/ws-server-secrets") or we derive
-pba-{ENVIRONMENT}/ws-server-secrets when ENVIRONMENT is set (default "devlive").
-Uses setdefault so existing env vars (e.g. from ECS task definition) override secret values.
+Only these keys are fetched from Secrets Manager (not from ECS task environment):
+- DJANGO_SECRET_KEY
+- AUTH_API_KEY
+- LLM_SERVICE_AUTH
+
+Secret name: pba-{ENVIRONMENT}/ws-server-secrets (ENVIRONMENT defaults to "devlive").
+Uses setdefault so existing env vars (e.g. local dev) override secret values.
 """
 import json
 import os
 
 import boto3
+
+# Keys to load from Secrets Manager only (must match infrastructure/stack.py WS_SECRET_KEYS)
+_WS_SECRET_KEYS = {"DJANGO_SECRET_KEY", "AUTH_API_KEY", "LLM_SERVICE_AUTH"}
 
 
 def _load_secrets_from_aws(env: str = "devlive") -> None:
@@ -22,9 +29,9 @@ def _load_secrets_from_aws(env: str = "devlive") -> None:
     if not secret_str:
         raise RuntimeError(f"Secret {secret_name!r} has no SecretString")
     data = json.loads(secret_str)
-    for key, value in data.items():
+    for key in _WS_SECRET_KEYS:
+        value = data.get(key)
         if value is not None:
-            # setdefault: existing env (e.g. from ECS) overrides secret
             os.environ.setdefault(key, str(value))
 
 

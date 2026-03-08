@@ -74,7 +74,7 @@ class ProdSettings(AppSettings):
 
     # AWS_BEDROCK_REGION SET AUTOMATICALLY BY AWS IN PROD
 
-DEV = True # SET TRUE FOR DEV, PROVIDE .ENV FILE at /src/.env
+DEV = os.getenv('ENVIRONMENT', '').lower() == "local" # SET TRUE FOR DEV, PROVIDE .ENV FILE at /src/.env
 
 if DEV:
     config = DevSettings()

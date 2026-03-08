@@ -43,7 +43,7 @@ class EscalationEvent(BaseModel):
 class MetadataEvent(BaseModel):
     """SSE metadata event containing FE alert flags"""
     event: Literal['metadata'] = 'metadata'
-    should_escalate: bool
+    should_escalate: bool = True
 
 class SessionConnectRequest(BaseModel):
     """Request body for POST /session/connect (trigger LLM WebSocket connection for a thread)."""
