@@ -10,9 +10,10 @@
       "name": "Bedford Gastro",
       "email_address": "BedfordGI@orchardmedicalmgt.com",
       "phone_number": "6036172107",
-      "work_start_time": "09:00:00",
-      "work_end_time": "18:00:00",
-      "timezone": "EST"
+      "work_start_time": "09:00 AM",
+      "work_end_time": "05:00 PM",
+      "timezone": "EST",
+      "timezone_region": "America/New_York"
     },
     "patient": {
       "id": 8680379,

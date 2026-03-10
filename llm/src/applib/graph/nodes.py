@@ -369,13 +369,24 @@ async def sms_message_post_script_respond(state: State) -> dict:
     )
     return await _static_respond(state, static_message)
 
+# Fallback when no invoice/practice for escalation "outside hours" message
+_DEFAULT_CUSTOMER_SERVICE_HOURS = 'during business hours'
+
+
 async def web_escalation_request_respond(state: State) -> dict:
-    # TODO: WHAT IF NO INVOICE?
-    static_message = (
-        static_messages
-        .escalation_request.web
-        .format(CUSTOMER_SERVICE_HOURS=state['invoice'].practice.hours)
-    )
+    invoice = state.get('invoice')
+    practice = invoice.practice if invoice else None
+    within_timezone = bool(practice and practice.is_within_timezone)
+
+    if within_timezone:
+        static_message = static_messages.escalation_request.web_within_timezone
+    else:
+        customer_service_hours = practice.hours if practice else _DEFAULT_CUSTOMER_SERVICE_HOURS
+        static_message = (
+            static_messages.escalation_request.web.format(
+                CUSTOMER_SERVICE_HOURS=customer_service_hours
+            )
+        )
     return await _static_respond(state, static_message)
 
 web_out_of_scope_respond = partial(_static_respond, static_message=static_messages.out_of_scope.web)
