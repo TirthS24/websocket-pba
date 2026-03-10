@@ -57,7 +57,7 @@ CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_HEADERS = list(_cors_default_headers) + ["x-api-key"]
 CORS_ALLOW_ALL_ORIGINS = True
 # CSRF: trust origins for cookie-based CSRF (e.g. frontend on localhost:3000)
-CSRF_TRUSTED_ORIGINS = _env_csv("CSRF_TRUSTED_ORIGINS", default="http://localhost:3000,http://127.0.0.1:3000,https://devlive.app.mypatriotpay.com,https://devlive.app.mypatriotpay.com/,https://testlive.app.mypatriotpay.com,https://testlive.app.mypatriotpay.com/,https://app.mypatriotpay.com/,https://app.mypatriotpay.com")
+CSRF_TRUSTED_ORIGINS = _env_csv("CSRF_TRUSTED_ORIGINS", default="http://localhost:3000,http://127.0.0.1:3000,https://devlive.app.mypatriotpay.com,https://devlive.app.mypatriotpay.com/,https://testlive.app.mypatriotpay.com,https://testlive.app.mypatriotpay.com/,https://app.mypatriotpay.com/,https://app.mypatriotpay.com,https://uatlive.app.mypatriotpay.com/")
 
 # When serving behind an ALB, Django must respect X-Forwarded-* headers.
 USE_X_FORWARDED_HOST = True

@@ -3,6 +3,8 @@ REST views for realtime app.
 
 - POST /api/thread/connect: accept thread_id from FE, trigger LLM service to open
   WebSocket connection for that thread.
+- POST /api/thread/disconnect: same payload as connect; call LLM /thread/disconnect
+  for any user type; response {"status": "ok", "thread_id": ..., "llm_connected": False}.
 - POST /api/thread/summarize: proxy to LLM /thread/summarize (same request/response).
 - POST /api/thread/history: proxy to LLM /thread/history (same request/response).
 
@@ -162,6 +164,48 @@ def thread_connect(request):
         {"detail": detail},
         status=resp.status_code if 400 <= resp.status_code < 600 else 502,
     )
+
+
+@require_http_methods(["POST"])
+def thread_disconnect(request):
+    """
+    Accept same JSON body as /thread/connect: { "thread_id": "<id>", "user_type": "..." (optional) }.
+    Call LLM service POST /thread/disconnect for any user type. Always return
+    {"status": "ok", "thread_id": thread_id, "llm_connected": False}.
+    """
+    if not getattr(settings, "LLM_SERVICE_URL", None) or not settings.LLM_SERVICE_URL.strip():
+        return JsonResponse(
+            {"detail": "LLM_SERVICE_URL not configured"},
+            status=503,
+        )
+
+    try:
+        body = json.loads(request.body) if request.body else {}
+    except json.JSONDecodeError:
+        return JsonResponse({"detail": "Invalid JSON"}, status=400)
+
+    thread_id = (body.get("thread_id") or "").strip()
+    if not thread_id:
+        return JsonResponse({"detail": "thread_id is required"}, status=400)
+
+    # Same payload as thread/connect: thread_id only when calling LLM
+    base = settings.LLM_SERVICE_URL.rstrip("/")
+    url = f"{base}/thread/disconnect"
+    headers = _llm_headers(request)
+
+    try:
+        import requests
+        resp = requests.post(url, json={"thread_id": thread_id}, headers=headers, timeout=10)
+    except ImportError:
+        logger.error("requests not installed; add requests to ws_server dependencies")
+        return JsonResponse({"detail": "Server misconfiguration"}, status=503)
+    except requests.RequestException as e:
+        logger.warning("LLM disconnect call failed for thread_id=%s: %s", thread_id, e)
+        # Still return success so FE can clear state; LLM may be down or already disconnected
+        return JsonResponse({"status": "ok", "thread_id": thread_id, "llm_connected": False})
+
+    # Normalize response to the required shape regardless of LLM response
+    return JsonResponse({"status": "ok", "thread_id": thread_id, "llm_connected": False})
 
 
 @require_http_methods(["POST"])

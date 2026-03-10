@@ -17,7 +17,7 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 
-from realtime.views import thread_connect, thread_history, thread_summarize, chat_sms, websocket_test_page
+from realtime.views import thread_connect, thread_disconnect, thread_history, thread_summarize, chat_sms, websocket_test_page
 from .health import health
 
 urlpatterns = [
@@ -32,4 +32,5 @@ urlpatterns = [
     path("api/thread/summarize/", thread_summarize),
     path("api/thread/history/", thread_history),
     path("api/chat/sms/", chat_sms),
+    path("api/thread/disconnect/", thread_disconnect),
 ]

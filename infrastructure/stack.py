@@ -94,7 +94,7 @@ class WebSocketPbaStack(Stack):
         rds_sg_id = os.getenv("RDS_SECURITY_GROUP_ID")
         rds_port = int(os.getenv("RDS_PORT", "5432"))  # Default to PostgreSQL port
         create_rds = os.getenv("CREATE_RDS", "true").lower() == "true"
-        rds_instance_class = os.getenv("RDS_INSTANCE_CLASS", "db.t4g.small")
+        rds_instance_class = os.getenv("RDS_INSTANCE_CLASS", "db.t4g.micro")
         rds_database_name = os.getenv(
             "RDS_DATABASE_NAME",
             f"pba_postgres_checkpointer_instance_{environment}",
@@ -330,10 +330,15 @@ class WebSocketPbaStack(Stack):
                 subnet_group_name=f"pba-checkpointer-rds-{environment}",
             )
             # Map common instance class strings to CDK InstanceType (default: db.t4g.micro)
-            if rds_instance_class == "db.t3.micro":
+            if rds_instance_class == "db.t4g.small":
                 instance_type = ec2.InstanceType.of(
-                    ec2.InstanceClass.BURSTABLE3,
-                    ec2.InstanceSize.MICRO,
+                    ec2.InstanceClass.BURSTABLE4_GRAVITON,
+                    ec2.InstanceSize.SMALL,
+                )
+            elif rds_instance_class == "db.t4g.medium":
+                instance_type = ec2.InstanceType.of(
+                    ec2.InstanceClass.BURSTABLE4_GRAVITON,
+                    ec2.InstanceSize.MEDIUM,
                 )
             else:
                 instance_type = ec2.InstanceType.of(

@@ -1,4 +1,4 @@
-Hi, I’m Paygent Assist — your AI-enabled medical billing expert.
+Hi, I’m Patient Billing Agent — your AI-enabled medical billing expert.
 
 I can help explain how health insurance works or review how a recent visit was processed.
 
