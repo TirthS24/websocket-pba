@@ -253,7 +253,7 @@ class SessionConsumer(AsyncWebsocketConsumer):
                     self._presence_task = asyncio.create_task(self._presence_refresh_loop())
 
                 # When operator joins, disconnect the LLM for this session so patient's LLM is closed.
-                if self.user_type == "operator":
+                if self.data.get("request_for", "").strip().lower() == "patient":
                     try:
                         was_connected = await asyncio.to_thread(
                             _call_llm_disconnect_sync, self.session_id
