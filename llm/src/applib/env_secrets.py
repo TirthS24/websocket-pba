@@ -29,6 +29,7 @@ def _load_secrets_from_aws(env: str = "devlive") -> None:
             # setdefault: existing env (e.g. from ECS) overrides secret
             os.environ.setdefault(key, str(value))
 
-
-# Run on import so that any later import of config etc. sees the env
-_load_secrets_from_aws(env=os.environ.get("ENVIRONMENT", "devlive"))
+# Skip AWS when running locally (ENVIRONMENT=local); use .env instead
+_env = os.environ.get("ENVIRONMENT", "local")
+if _env.lower() != "local":
+    _load_secrets_from_aws(env=_env)

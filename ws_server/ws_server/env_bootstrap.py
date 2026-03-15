@@ -13,7 +13,7 @@ Uses setdefault so existing env vars (e.g. local dev) override secret values.
 """
 import json
 import os
-
+from pathlib import Path
 import boto3
 
 # Keys to load from Secrets Manager only (must match infrastructure/stack.py WS_SECRET_KEYS)
@@ -35,5 +35,19 @@ def _load_secrets_from_aws(env: str = "devlive") -> None:
             os.environ.setdefault(key, str(value))
 
 
-# Run on import so that any later import of settings sees the env
-_load_secrets_from_aws(env=os.environ.get("ENVIRONMENT", "devlive"))
+# Load .env first when present so ENVIRONMENT and secrets can come from file
+def _load_dotenv_if_present() -> None:
+    root = Path(__file__).resolve().parent.parent.parent  # ws_server/ws_server -> ws_server
+    for candidate in (root.parent / ".env", root / ".env", Path.cwd() / ".env"):
+        if candidate.exists():
+            from dotenv import load_dotenv
+            load_dotenv(candidate)
+            return
+
+
+_load_dotenv_if_present()
+
+# Skip AWS when ENVIRONMENT is not set or is "local"; use .env values instead
+_env = os.environ.get("ENVIRONMENT", "").strip().lower()
+if _env and _env != "local":
+    _load_secrets_from_aws(env=_env)

@@ -18,10 +18,6 @@ class DevSettings(AppSettings):
     PSQL_DATA_DATABASE: str
     PSQL_SSLMODE: str
     AWS_BEDROCK_REGION: str
-    BEDROCK_MODEL_ID_BILLING_AGENT: str
-    BEDROCK_MODEL_ID_CLAIM_AGENT: str
-    BEDROCK_MODEL_ID_ESCALATION_DETECTION: str
-    BEDROCK_MODEL_ID_INTENT_DETECTION: str
     BEDROCK_MODEL_ID_SMS_ROUTER: str
     BEDROCK_MODEL_ID_WEB_ROUTER: str
     BEDROCK_MODEL_ID_SMS_RESPOND: str
@@ -76,8 +72,17 @@ class ProdSettings(AppSettings):
 
 DEV = os.getenv('ENVIRONMENT', '').lower() == "local" # SET TRUE FOR DEV, PROVIDE .ENV FILE at /src/.env
 
+def _env_file_path() -> Path | None:
+    """Resolve .env path: workspace root (parent of llm) or llm project root. Returns None if not found."""
+    root = Path(__file__).resolve().parent.parent.parent  # llm/src/applib -> llm
+    for candidate in (root.parent / ".env", root / ".env", Path(".env")):
+        if candidate.exists():
+            return candidate
+    return None
+
 if DEV:
-    config = DevSettings()
+    _env_file = _env_file_path()
+    config = DevSettings(_env_file=_env_file) if _env_file is not None else DevSettings()
 else:
 
     """

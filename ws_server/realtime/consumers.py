@@ -252,24 +252,6 @@ class SessionConsumer(AsyncWebsocketConsumer):
                 if not self._presence_task:
                     self._presence_task = asyncio.create_task(self._presence_refresh_loop())
 
-                # When operator joins, disconnect the LLM for this session so patient's LLM is closed.
-                if self.data.get("request_for", "").strip().lower() == "patient":
-                    try:
-                        was_connected = await asyncio.to_thread(
-                            _call_llm_disconnect_sync, self.session_id
-                        )
-                        if was_connected:
-                            logger.info(
-                                "Disconnected LLM for session_id=%s (operator joined)",
-                                self.session_id,
-                            )
-                    except Exception as e:
-                        logger.warning(
-                            "LLM disconnect failed for session_id=%s: %s",
-                            self.session_id,
-                            e,
-                        )
-
         # Refresh presence metadata on activity.
         if self.session_id and self._presence_registered:
             await upsert_connection(
@@ -327,6 +309,27 @@ class SessionConsumer(AsyncWebsocketConsumer):
                 await self.send_json({"type": "error", "error": "user_type_required"})
                 await self.close(code=4401)
                 return
+            # When operator sends a message with request_for=Patient, disconnect the LLM for this session.
+            data = msg.get("data") or {}
+            if (
+                self.user_type == "operator"
+                or str(data.get("request_for", "")).strip().lower() == "patient"
+            ):
+                try:
+                    was_connected = await asyncio.to_thread(
+                        _call_llm_disconnect_sync, self.session_id
+                    )
+                    if was_connected:
+                        logger.info(
+                            "Disconnected LLM for session_id=%s (operator message with request_for=Patient)",
+                            self.session_id,
+                        )
+                except Exception as e:
+                    logger.warning(
+                        "LLM disconnect failed for session_id=%s: %s",
+                        self.session_id,
+                        e,
+                    )
             # AI responses relayed via broadcast_message handler (sends "broadcast" to client); others use session_message
             relay_type = "broadcast_message" if self.user_type == "ai" else "session_message"
             payload = {

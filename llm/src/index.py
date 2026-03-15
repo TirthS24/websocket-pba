@@ -1,3 +1,12 @@
+# Load .env first so ENVIRONMENT=local can skip AWS Secrets Manager when running locally
+from pathlib import Path
+_env_root = Path(__file__).resolve().parent.parent.parent  # llm/src -> llm
+for _env_path in (_env_root.parent / ".env", _env_root / ".env", Path.cwd() / ".env"):
+    if _env_path.exists():
+        from dotenv import load_dotenv
+        load_dotenv(_env_path)
+        break
+
 # Load secrets from AWS Secrets Manager before any other app imports
 import applib.env_secrets
 
